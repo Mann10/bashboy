@@ -9,6 +9,20 @@ description = "Classify shell commands as allow or deny before an agent runs the
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Mann10", email = "82712171+Mann10@users.noreply.github.com" }]
+keywords = ["security", "agents", "claude-code", "opencode", "shell", "guardrails"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Topic :: Security",
+]
+
+[project.urls]
+Homepage = "https://github.com/Mann10/bashboy"
+Issues = "https://github.com/Mann10/bashboy/issues"
+Source = "https://github.com/Mann10/bashboy"
 
 [project.scripts]
 bashboy = "bashboy.cli:main"
@@ -18,6 +32,9 @@ dev = ["pytest>=8"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bashboy"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [".planning", "dist", ".venv", ".pytest_cache"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
