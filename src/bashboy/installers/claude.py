@@ -16,7 +16,7 @@ from pathlib import Path
 from ..config import ConfigError, load_config
 from . import atomic_write_text
 
-MATCHER = "Bash|PowerShell"
+MATCHER = "Bash|PowerShell|Read"
 STATUS_MESSAGE = "BashBoy: checking command"
 
 

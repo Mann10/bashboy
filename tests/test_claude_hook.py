@@ -74,6 +74,46 @@ def test_tool_name_is_ignored_but_command_is_classified() -> None:
     assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
+def test_read_dotenv_is_denied() -> None:
+    code, out = invoke(
+        json.dumps({"tool_name": "Read", "tool_input": {"file_path": "C:/proj/.env"}})
+    )
+    assert code == 0
+    body = json.loads(out)["hookSpecificOutput"]
+    assert body["permissionDecision"] == "deny"
+    assert ".env" in body["permissionDecisionReason"]
+
+
+def test_read_dotenv_variant_is_denied() -> None:
+    code, out = invoke(
+        json.dumps({"tool_name": "read", "tool_input": {"path": "app/.env.local"}})
+    )
+    assert code == 0
+    assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_read_dotenv_template_is_allowed() -> None:
+    code, out = invoke(
+        json.dumps({"tool_name": "Read", "tool_input": {"file_path": ".env.example"}})
+    )
+    assert code == 0
+    assert out == ""
+
+
+def test_read_other_file_is_allowed() -> None:
+    code, out = invoke(
+        json.dumps({"tool_name": "Read", "tool_input": {"file_path": "README.md"}})
+    )
+    assert code == 0
+    assert out == ""
+
+
+def test_read_without_path_is_allowed() -> None:
+    code, out = invoke(json.dumps({"tool_name": "Read", "tool_input": {}}))
+    assert code == 0
+    assert out == ""
+
+
 def test_cmd_alias_is_accepted() -> None:
     code, out = invoke(json.dumps({"tool_input": {"cmd": "rm -rf /"}}))
     assert code == 0

@@ -13,7 +13,9 @@ positives are not.
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
 from dataclasses import dataclass
 
 # Shell metacharacters that make a command structurally unsuitable for the
@@ -99,18 +101,18 @@ def _segments(command: str, depth: int) -> list[str]:
 
 # --- denylist -------------------------------------------------------------
 
-_RM_PREFIX = r"(?<![-\w])rm\s+(?:(?:-[A-Za-z]+|--[\w-]+)\s+)+"
+_RM_PREFIX = r"(?<![-\w])rm\s+(?:(?:-[A-Za-z]+|--[\w-]+|--)\s+)+"
 
 # Protected targets: filesystem root, root glob, system directories, home.
 _RM_PROTECTED_TARGET = (
     r"(?:"
-    r"/(?=\s|$)"
-    r"|/\*"
-    r"|/(?:usr|etc|var|bin|sbin|boot|lib|lib64|opt|root|home|srv|sys|dev|proc)\b\S*"
-    r"|~(?=\s|$)"
-    r"|~/(?=\s|$)"
-    r"|~/\*"
-    r"|\$(?:HOME|\{HOME\})(?=\s|$|/)"
+    r"[\"']?/(?=\s|$|[\"'])"
+    r"|[\"']?/\*"
+    r"|[\"']?/(?:usr|etc|var|bin|sbin|boot|lib|lib64|opt|root|home|srv|sys|dev|proc)\b\S*"
+    r"|[\"']?~(?=\s|$|[\"'])"
+    r"|[\"']?~/(?=\s|$|[\"'])"
+    r"|[\"']?~/\*"
+    r"|[\"']?\$(?:HOME|\{HOME\})(?=\s|$|/|[\"'])"
     r")"
 )
 
@@ -181,6 +183,131 @@ def check_denylist(command: str, cwd: str | None = None) -> DenyHit | None:
             if pattern.pattern in _CWD_GATED and not _at_filesystem_root(cwd):
                 continue
             return DenyHit(reason=reason, pattern=pattern.pattern)
+    return check_env_access(command)
+
+
+# --- secrets: .env files --------------------------------------------------
+#
+# Approach inspired by the ``safety-hooks`` plugin
+# (pchalasani/claude-code-tools, MIT): resolve each segment's *command word*
+# before deciding, so a commit message that merely mentions ".env" is not
+# treated as a read. The implementation and reader list here are ours.
+
+_ENV_READERS = frozenset(
+    {
+        "cat", "less", "more", "head", "tail", "bat", "xxd", "od", "strings",
+        "grep", "rg", "ag", "ack", "sed", "awk", "cp", "mv", "tee", "touch",
+        "source", ".", "nano", "vi", "vim", "code", "subl", "emacs",
+        "tar", "zip", "7z", "base64", "openssl", "scp", "rsync",
+    }
+)
+_ENV_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+_ENV_WRAPPERS = frozenset({"sudo", "command", "env", "nohup", "time", "exec", "xargs"})
+_ENV_VALUE_FLAGS = frozenset(
+    {"-u", "-g", "-C", "-D", "-h", "-p", "-R", "-r", "-t", "-T", "-U", "-n",
+     "-s", "-o", "-a", "-d", "-E", "-I", "-L", "-P", "-S", "--user", "--group"}
+)
+_ENV_REDIRECT = re.compile(
+    r"(?:&>>?|>>?)\s*[\"']?[^\s\"']*\.env(?!\.(?:example|sample|template)\b)",
+    re.IGNORECASE,
+)
+_ENV_FALLBACK = re.compile(
+    r"\b(?:cat|less|more|head|tail|bat|grep|rg|ag|ack|sed|awk|cp|mv|tee|touch|"
+    r"source|nano|vi|vim|code)\b[^\n]*\.env",
+    re.IGNORECASE,
+)
+_ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _names_env_file(token: str) -> bool:
+    """True when ``token`` names a dotenv file (``.env``, ``.env.local``)."""
+    base = token.strip("\"'").lstrip("@").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    base = base.rsplit(":", 1)[-1]  # ``git show HEAD:.env``
+    if base == ".env":
+        return True
+    if not base.startswith(".env."):
+        return False
+    # Templates hold no secrets and are routinely read by agents.
+    return base[5:] not in {"example", "sample", "template"}
+
+
+def _command_index(tokens: list[str]) -> int | None:
+    """Skip assignments and simple wrappers, then return the command word index."""
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if _ENV_ASSIGNMENT.match(token):
+            index += 1
+            continue
+        head = os.path.basename(token).lower()
+        if head in _ENV_WRAPPERS:
+            index += 1
+            while index < len(tokens) and tokens[index].startswith("-"):
+                flag = tokens[index]
+                index += 1
+                if flag in _ENV_VALUE_FLAGS and index < len(tokens):
+                    index += 1
+            continue
+        return index
+    return None
+
+
+def _segment_env_access(piece: str) -> bool:
+    """Whether one shell segment reads or writes a dotenv file."""
+    if _ENV_REDIRECT.search(piece):
+        return True
+    try:
+        tokens = shlex.split(piece, posix=True)
+    except ValueError:
+        # Unparseable quoting: fall back to over-blocking.
+        return bool(_ENV_FALLBACK.search(piece))
+    index = _command_index(tokens)
+    if index is None:
+        return False
+    head = os.path.basename(tokens[index]).lower()
+    args = tokens[index + 1 :]
+
+    if head in _ENV_SHELLS:
+        for position, token in enumerate(args):
+            inline = token.startswith("-") and not token.startswith("--") and "c" in token[1:]
+            if inline and position + 1 < len(args):
+                return check_env_access(args[position + 1]) is not None
+        return False
+    if head == "eval":
+        return check_env_access(" ".join(args)) is not None
+    if head == "find":
+        # Listing is harmless; -exec/-delete touch the file.
+        return any(t in {"-exec", "-execdir", "-delete", "-ok"} for t in args) and any(
+            _names_env_file(t) for t in args
+        )
+    if head == "git":
+        # ``git diff .env`` prints secrets; ``git commit -m "fix .env"`` does not.
+        return any(_names_env_file(t) for t in args)
+    if head not in _ENV_READERS:
+        return False
+    return any(_names_env_file(token) for token in args)
+
+
+def check_env_access(command: str) -> DenyHit | None:
+    """Deny commands that read, write, or copy a dotenv file.
+
+    The check is command-position based: ``git commit -m 'fix .env'`` is not a
+    dotenv read, while ``cat .env`` and ``echo x > .env`` are.
+    """
+    if not isinstance(command, str) or ".env" not in command.lower():
+        return None
+    for piece in segments(command):
+        if _segment_env_access(piece):
+            return DenyHit("access to a .env file (secrets)", ".env")
+    return None
+
+
+def check_env_read(file_path: object) -> DenyHit | None:
+    """Deny a host Read tool call whose target is a dotenv file."""
+    if not isinstance(file_path, str) or not file_path.strip():
+        return None
+    if _names_env_file(file_path.strip()):
+        return DenyHit("reading a .env file (secrets)", ".env")
     return None
 
 

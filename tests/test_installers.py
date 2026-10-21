@@ -31,7 +31,7 @@ def test_claude_fresh_file_shape(tmp_path) -> None:
     result = install_claude(settings)
 
     data = read_json(settings)
-    assert data["hooks"]["PreToolUse"][0]["matcher"] == "Bash|PowerShell"
+    assert data["hooks"]["PreToolUse"][0]["matcher"] == "Bash|PowerShell|Read"
     assert data["hooks"]["PreToolUse"][0]["hooks"] == [EXPECTED_HANDLER]
     assert result == data
 
@@ -61,7 +61,7 @@ def test_claude_replaces_existing_bashboy_handler(tmp_path) -> None:
                 "hooks": {
                     "PreToolUse": [
                         {
-                            "matcher": "Bash|PowerShell",
+                            "matcher": "Bash|PowerShell|Read",
                             "hooks": [dict(EXPECTED_HANDLER, statusMessage="stale")],
                         }
                     ]

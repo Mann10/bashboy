@@ -176,3 +176,97 @@ def test_segments_depth_is_capped() -> None:
 
 def test_denylist_ignores_non_string() -> None:
     assert rules.check_denylist(None) is None  # type: ignore[arg-type]
+
+
+# --- quoted destructive targets -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'rm -rf "/"',
+        "rm -rf '/usr'",
+        'rm -rf "$HOME"',
+        "rm -rf ~/",
+        "rm -rf '/etc'",
+        "rm -rf -- /",
+    ],
+)
+def test_quoted_protected_rm_targets_are_denied(command: str) -> None:
+    hit = rules.check_denylist(command)
+    assert hit is not None
+    assert "protected path" in hit.reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf ./build",
+        "rm -rf node_modules",
+        "rm -rf 'build dir'",
+    ],
+)
+def test_quoted_safe_rm_targets_are_not_denied(command: str) -> None:
+    assert rules.check_denylist(command) is None
+
+
+# --- .env protection ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat .env",
+        "cat ./.env",
+        "head -n 5 .env.local",
+        'cat "C:/proj/.env"',
+        "grep -r API_KEY .env",
+        "cp .env /tmp/leak",
+        "echo SECRET=1 > .env",
+        "echo SECRET=1 >> .env",
+        "bash -c 'cat .env'",
+        "sudo cat .env",
+        "source .env",
+        "sed -i s/a/b/ .env.production",
+        "git diff .env",
+        "git show HEAD:.env",
+        "git add .env",
+        "find . -name .env -exec cat {} \\;",
+        "tar czf out.tgz .env",
+    ],
+)
+def test_dotenv_access_is_denied(command: str) -> None:
+    hit = rules.check_denylist(command)
+    assert hit is not None
+    assert ".env" in hit.reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat .env.example",
+        "cat .env.sample",
+        "cat .env.template",
+        "echo FOO=1 > .env.example",
+        'git commit -m "fix .env handling"',
+        'echo "see .env for details"',
+        "grep -r 'process.env' src",
+        "ls -la",
+        "find . -name .env -print",
+    ],
+)
+def test_dotenv_false_positives_are_not_denied(command: str) -> None:
+    assert rules.check_denylist(command) is None
+
+
+def test_check_env_read_denies_dotenv_paths() -> None:
+    assert rules.check_env_read(".env") is not None
+    assert rules.check_env_read("C:/proj/.env.local") is not None
+    assert rules.check_env_read("app\\.env.production") is not None
+
+
+def test_check_env_read_allows_templates_and_other_files() -> None:
+    assert rules.check_env_read(".env.example") is None
+    assert rules.check_env_read("README.md") is None
+    assert rules.check_env_read(None) is None
+    assert rules.check_env_read("") is None

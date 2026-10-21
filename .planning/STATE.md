@@ -10,8 +10,8 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 1 of 3 (Classifier core)
-Status: Quick tasks 261021-hu8 and 261021-iz1 delivered the v0.1 implementation and v0.2 file-based credentials; live Clocked call verified
-Last activity: 2026-10-21 - Verified the live Clocked envelope and fixed Cloudflare 1010 (v0.2.1)
+Status: v0.2.1 shipped; 0.3.0 adds dotenv protection and quoted destructive-target matching
+Last activity: 2026-10-21 - Reviewed the safety-hooks plugin and implemented its dotenv guard (0.3.0)
 
 Progress: [███████---] 75%
 
@@ -33,10 +33,18 @@ Progress: [███████---] 75%
 - Clocked requests send `User-Agent: bashboy/<version>`: Cloudflare answers 403
   (error 1010) to urllib's default signature, which looked like a bad token.
 - Live envelope (verified 2026-10-21): `{"model":"clocked-1.0","fields":{"verdict":{"value":"allow",...},"risk":{"value":"low",...},"reason":{"value":"yes",...}},"timing":{...}}`.
+- Denylist accepts quoted destructive targets (`rm -rf "/"`, `rm -rf '/usr'`).
+- Dotenv protection is command-position based: `cat .env`, `cp .env /tmp`, and
+  `echo x > .env` are denied; `git commit -m "fix .env"` is not. Claude's `Read`
+  tool is guarded by path; `.env.example`/`.env.sample`/`.env.template` stay readable.
+- Adopted the command-position idea from `safety-hooks` (pchalasani/claude-code-tools,
+  MIT), not its code. Deliberate divergences: binary verdict (no `ask`), fail closed
+  (no `{"decision":"approve"}` fallback), no alias expansion, no file-length hook.
 
 ### Pending Todos
 
-- Publish `0.2.1` (Cloudflare User-Agent fix) and confirm `uvx bashboy version`.
+- Publish `0.3.0` (dotenv guard + quoted targets) and confirm `uvx bashboy version`.
+- Optional: gate OpenCode's `read` tool the same way as Claude's `Read` (currently only shell tools are hooked there).
 
 ### Releases
 
@@ -44,7 +52,8 @@ Progress: [███████---] 75%
   (`.github/workflows/release.yml`, tag `v0.1.0`).
 - `0.2.0` published to PyPI on 2026-10-21 (file-based credentials + `bashboy auth`);
   it fails every provider call with HTTP 403 because of Cloudflare error 1010.
-- `0.2.1` fixes the User-Agent; tag `v0.2.1` triggers the same workflow.
+- `0.2.1` fixes the User-Agent; published 2026-10-21, `uvx bashboy version` confirmed.
+- `0.3.0` adds the dotenv guard and quoted destructive-target matching; tag pending.
 
 ### Blockers/Concerns
 

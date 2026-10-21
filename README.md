@@ -197,7 +197,7 @@ The exact entry it writes:
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell",
+        "matcher": "Bash|PowerShell|Read",
         "hooks": [
           {
             "type": "command",
@@ -231,6 +231,10 @@ The hook reads one JSON object on stdin. On `deny` it prints the
 `hookSpecificOutput` envelope with `permissionDecision: "deny"`; on `allow`, blank
 input, or malformed input it prints nothing and exits `0` so the host's normal
 permission flow continues.
+
+The same hook also covers the `Read` tool: a read of `.env`, `.env.local`, or any
+`.env.*` file is denied, while templates (`.env.example`, `.env.sample`,
+`.env.template`) are allowed.
 
 ## OpenCode setup
 
@@ -312,6 +316,9 @@ raw (redacted) response so the parser can be extended.
   backticks — but it does not decode base64, `r''m`-style quoting, or other
   obfuscation. Such commands are not allowlisted and therefore reach the model,
   which fails closed.
+- Dotenv protection is command-position based: `cat .env`, `cp .env /tmp`, and
+  `echo x > .env` are denied, while `git commit -m "fix .env handling"` is not.
+  The Claude Code `Read` guard is path based. OpenCode's `read` tool is not gated.
 - PowerShell/bash parity is best-effort. The allowlist covers a small bash-oriented
   set; PowerShell users should expect more commands to reach the model.
 - `git reset --hard` is intentionally **not** denied: it is recoverable via the
