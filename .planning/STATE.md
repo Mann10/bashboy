@@ -10,10 +10,10 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 1 of 3 (Classifier core)
-Status: Quick task 261021-hu8 delivered the v0.1 implementation (rules, provider, CLI, both integrations, installers)
-Last activity: 2026-10-21 - Completed quick task 261021-hu8: Build BashBoy shell-command safety gate
+Status: Quick tasks 261021-hu8 and 261021-iz1 delivered the v0.1 implementation and v0.2 file-based credentials
+Last activity: 2026-10-21 - Completed quick task 261021-iz1: file-based Clocked credentials (v0.2.0)
 
-Progress: [██████----] 60%
+Progress: [███████---] 75%
 
 ## Performance Metrics
 
@@ -39,6 +39,8 @@ Progress: [██████----] 60%
 
 - `0.1.0` published to PyPI on 2026-10-21 via GitHub trusted publishing
   (`.github/workflows/release.yml`, tag `v0.1.0`).
+- `0.2.0` implemented (file-based credentials + `bashboy auth`), not yet published.
+  Release with `git tag -a v0.2.0 -m "bashboy 0.2.0" && git push origin v0.2.0`.
 
 ### Blockers/Concerns
 
@@ -50,3 +52,4 @@ Progress: [██████----] 60%
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 261021-hu8 | Build BashBoy: uv/uvx Python CLI classifying shell commands via Clocked with local fast paths + Claude Code and OpenCode integrations | 2026-10-21 | d50abc0 | [261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c](./quick/261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c/) |
+| 261021-iz1 | Add file-based Clocked credentials: `api_key_file`, `BASHBOY_API_KEY_FILE`, `bashboy auth set/status/clear` | 2026-10-21 | f15f007 | [261021-iz1-add-file-based-clocked-credentials-provi](./quick/261021-iz1-add-file-based-clocked-credentials-provi/) |
