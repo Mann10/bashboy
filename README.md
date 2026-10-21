@@ -80,6 +80,15 @@ bashboy auth clear                  # delete after confirmation
 echo "$CLOCKED_API_KEY" | bashboy auth set --stdin --force
 ```
 
+On Windows, `getpass` reads raw keystrokes with echo off, and pasting into that
+prompt is unreliable — Ctrl+V can land nothing or drop characters. If the
+prompt seems to ignore your paste, put the key on the clipboard and pipe it
+instead (it never touches shell history):
+
+```powershell
+Get-Clipboard | bashboy auth set --stdin --force
+```
+
 `auth set` writes the file atomically, creates `~/.bashboy` with mode `0700` on
 POSIX, and sets the file itself to `0600`. The token is never accepted as a
 command-line argument — it would land in shell history and process listings — and

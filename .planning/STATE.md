@@ -10,8 +10,8 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 1 of 3 (Classifier core)
-Status: Quick tasks 261021-hu8 and 261021-iz1 delivered the v0.1 implementation and v0.2 file-based credentials
-Last activity: 2026-10-21 - Completed quick task 261021-iz1: file-based Clocked credentials (v0.2.0)
+Status: Quick tasks 261021-hu8 and 261021-iz1 delivered the v0.1 implementation and v0.2 file-based credentials; live Clocked call verified
+Last activity: 2026-10-21 - Verified the live Clocked envelope and fixed Cloudflare 1010 (v0.2.1)
 
 Progress: [███████---] 75%
 
@@ -30,22 +30,25 @@ Progress: [███████---] 75%
 - Verdict is binary: allow (no decision) or deny.
 - Fail closed on provider errors.
 - Allowlist matches only single simple commands (no shell operators).
+- Clocked requests send `User-Agent: bashboy/<version>`: Cloudflare answers 403
+  (error 1010) to urllib's default signature, which looked like a bad token.
+- Live envelope (verified 2026-10-21): `{"model":"clocked-1.0","fields":{"verdict":{"value":"allow",...},"risk":{"value":"low",...},"reason":{"value":"yes",...}},"timing":{...}}`.
 
 ### Pending Todos
 
-- Validate the Clocked response envelope with a real `CLOCKED_API_KEY`.
+- Publish `0.2.1` (Cloudflare User-Agent fix) and confirm `uvx bashboy version`.
 
 ### Releases
 
 - `0.1.0` published to PyPI on 2026-10-21 via GitHub trusted publishing
   (`.github/workflows/release.yml`, tag `v0.1.0`).
-- `0.2.0` implemented (file-based credentials + `bashboy auth`), not yet published.
-  Release with `git tag -a v0.2.0 -m "bashboy 0.2.0" && git push origin v0.2.0`.
+- `0.2.0` published to PyPI on 2026-10-21 (file-based credentials + `bashboy auth`);
+  it fails every provider call with HTTP 403 because of Cloudflare error 1010.
+- `0.2.1` fixes the User-Agent; tag `v0.2.1` triggers the same workflow.
 
 ### Blockers/Concerns
 
-- Clocked endpoint (`POST https://clocked.rezolve.ai/clocked/fill`) response shape is
-  unverified; the adapter must be tolerant and tested against fixtures.
+- None. The Clocked response envelope is verified against a live call.
 
 ### Quick Tasks Completed
 

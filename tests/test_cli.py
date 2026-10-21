@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import bashboy.provider as provider_module
-from bashboy import cli, credentials
+from bashboy import __version__, cli, credentials
 from bashboy.config import DEFAULT_CONFIG_TOML
 from bashboy.provider import ProviderError
 
@@ -105,7 +105,7 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     code = run(["version"])
     out = capsys.readouterr().out
     assert code == 0
-    assert "bashboy 0.2.0" in out
+    assert f"bashboy {__version__}" in out
 
 
 def test_selftest_without_key(capsys: pytest.CaptureFixture[str]) -> None:

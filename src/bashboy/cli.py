@@ -143,9 +143,9 @@ def _cmd_auth_set(args: argparse.Namespace) -> int:
     if args.stdin:
         token = sys.stdin.read().strip()
     else:
-        token = _getpass("Clocked API key: ").strip()
+        token = _getpass("Clocked API key (input hidden): ").strip()
         if token:
-            confirm = _getpass("Repeat to confirm: ").strip()
+            confirm = _getpass("Repeat to confirm (input hidden): ").strip()
             if confirm != token:
                 print("bashboy: tokens did not match", file=sys.stderr)
                 return 2

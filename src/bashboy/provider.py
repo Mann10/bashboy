@@ -22,6 +22,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from . import __version__
 from .config import ProviderConfig
 
 Transport = Callable[[str, bytes, dict[str, str], float], tuple[int, bytes]]
@@ -178,6 +179,10 @@ class Provider:
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "Idempotency-Key": str(uuid.uuid4()),
+            # The endpoint sits behind Cloudflare, which answers 403 (error 1010)
+            # to urllib's default `Python-urllib/3.x` signature. Any honest
+            # product UA gets through; omitting this breaks every request.
+            "User-Agent": f"bashboy/{__version__}",
         }
         timeout = max(int(self.cfg.timeout_ms), 0) / 1000.0
 

@@ -81,6 +81,8 @@ def test_request_headers_and_timeout() -> None:
     assert headers["Authorization"] == "Bearer k"
     assert headers["Content-Type"] == "application/json"
     assert uuid.UUID(headers["Idempotency-Key"]).version == 4
+    # Cloudflare bans urllib's default signature with a 403 (error 1010).
+    assert headers["User-Agent"].startswith("bashboy/")
     assert timeout == 4.0
     decoded = json.loads(raw_body.decode("utf-8"))
     assert decoded["text"] == "cwd: /tmp\ncommand: git push"
