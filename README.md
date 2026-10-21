@@ -17,12 +17,14 @@ safe to run unattended?
 Three layers, in order:
 
 1. **Local fast paths** (no network): a structural allowlist for single read-only
-   commands, and a hard denylist for destructive ones.
+   commands, and a hard denylist for destructive and secret-reading ones.
 2. **Model classification** against the Clocked (`clocked/fill`) endpoint for everything
-   else.
+   else, when a key is configured.
 3. **Host adapters** that express denial only.
 
-Anything the fast paths do not recognise goes to the model. Anything the model path
+Without a Clocked key, step 2 is skipped: known-bad commands are still denied, and
+everything else produces **no objection**, so the host's own permission flow decides.
+Set `BASHBOY_REQUIRE_KEY=1` to deny unknown commands instead. Anything the model path
 cannot answer clearly becomes `deny`.
 
 ## Install
@@ -38,7 +40,7 @@ pipx install bashboy        # pipx alternative
 Verify the install:
 
 ```bash
-bashboy version             # bashboy 0.2.0
+bashboy version             # bashboy 0.4.0
 bashboy selftest            # offline checks; reports provider: ok when the key works
 ```
 
@@ -62,7 +64,7 @@ The token is resolved at call time; the first hit wins:
 | 2 | `BASHBOY_API_KEY_FILE` | Full path to a credential file |
 | 3 | `[provider].api_key_file` in `config.toml` | `~` is expanded |
 | 4 | `~/.bashboy/credentials` | Default per-user file |
-| 5 | nothing | Model-path calls fail closed (`deny`, `source: "fallback"`) |
+| 5 | nothing | Local rules only: known-bad commands are denied, everything else gets no objection; `BASHBOY_REQUIRE_KEY=1` turns that into a deny |
 
 GUI-launched hosts (Claude Code desktop, OpenCode's background service) do not
 inherit a shell profile, so a variable exported in a terminal is invisible to
@@ -107,7 +109,10 @@ Permission policy:
   entries are normal. The ACL probe never runs on the `bashboy check` hot path.
 
 The token is read from the file at call time, so rotating it needs no host
-restart. A missing or empty file simply means "no key".
+restart. A missing or empty file simply means "no key": BashBoy keeps enforcing
+the built-in rules and skips the model, so `bashboy rules` shows exactly what is
+still blocked. For CI or a strict machine, `BASHBOY_REQUIRE_KEY=1` makes an
+unknown command a `deny` (`source: "fallback"`) instead.
 
 ## Quick start
 
@@ -136,9 +141,28 @@ Exit codes:
 {"decision":"deny","source":"denylist","reason":"recursive delete of a protected path","risk":null,"latency_ms":0}
 ```
 
-`source` is one of `denylist`, `allowlist`, `model`, `fallback`, `disabled`.
-`--cwd DIR` supplies the working directory used for context (default: current
-directory).
+`source` is one of `denylist`, `allowlist`, `model`, `local-only`, `fallback`,
+`disabled`. `--cwd DIR` supplies the working directory used for context (default:
+current directory).
+
+## Built-in rules
+
+```bash
+bashboy rules                  # grouped listing with an example per rule
+bashboy rules --category env   # only the secret-related rules
+bashboy rules --json           # {"rules":[{"id","category","reason","example"}]}
+```
+
+The denylist covers filesystem-root and system-directory deletes, wildcard deletes
+at a root, drive-root deletes (PowerShell, `rd /s`, `del /s`, Git Bash `/c/`),
+`mkfs`/`wipefs`/`blkdiscard`, raw writes to block devices, fork bombs, root
+`chmod`/`chown`, power control, `find / -delete`, and `.env` access. The env rules
+also block bare `printenv`/`env`/`set`/`export -p`, `/proc/*/environ`, and
+PowerShell `Env:` dumps, because those expose every secret in the process
+environment.
+
+Rules run before the allowlist, so `cat .env` is denied even though `cat` is
+allowlisted. Denials cost zero network calls.
 
 ## Configuration
 
@@ -297,25 +321,29 @@ read at call time from the environment or the credential file, sent only as the
 `Authorization` header, and never logged, persisted in `config.toml`, or included
 in `config show`.
 
-## Known limitation: unverified Clocked envelope
+## Clocked envelope
 
-The response shape of the Clocked (`clocked/fill`) endpoint is **unverified**. Parsing
-is deliberately tolerant (`extract_field` walks nested objects and arrays
-breadth-first, and unwraps `value`/`text`/`answer`/`label`/`result`/`content`
-containers). If the response cannot be resolved to a clear `allow` or `deny`, the
-verdict is `deny` with `source: "fallback"`. Report envelope mismatches with the
-raw (redacted) response so the parser can be extended.
+The live envelope is verified (`clocked-1.0`): `verdict`, `risk`, and `reason` are
+nested under `fields`, each with a `value`. Parsing is still deliberately tolerant
+(`extract_field` walks nested objects and arrays breadth-first, and unwraps
+`value`/`text`/`answer`/`label`/`result`/`content` containers). If the response
+cannot be resolved to a clear `allow` or `deny`, the verdict is `deny` with
+`source: "fallback"`. Report envelope mismatches with the raw (redacted) response
+so the parser can be extended.
 
 ## Limitations
 
 - The structural allowlist is conservative by design: any operator, substitution,
-  redirection, or chaining disqualifies a command. False negatives simply go to the
-  model.
+  redirection, or chaining disqualifies a command. False negatives go to the model
+  when a key is configured; without one they produce no objection.
 - The denylist is a fast path, not a complete policy. It catches literal destructive
   patterns and payloads hidden behind `;`, `&&`, `||`, `|`, newlines, `$(...)`, and
   backticks — but it does not decode base64, `r''m`-style quoting, or other
-  obfuscation. Such commands are not allowlisted and therefore reach the model,
-  which fails closed.
+  obfuscation. Such commands are not allowlisted and therefore reach the model
+  (which fails closed) or, without a key, produce no objection.
+- **Local-only mode** (no key) is not a complete gate: unknown commands are not
+  classified by BashBoy at all. Use `BASHBOY_REQUIRE_KEY=1` if you need a deny
+  instead of handing the decision back to the host.
 - Dotenv protection is command-position based: `cat .env`, `cp .env /tmp`, and
   `echo x > .env` are denied, while `git commit -m "fix .env handling"` is not.
   The Claude Code `Read` guard is path based. OpenCode's `read` tool is not gated.

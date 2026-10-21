@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bashboy"
-version = "0.3.1"
+version = "0.4.0"
 description = "Classify shell commands as allow or deny before an agent runs them."
 readme = "README.md"
 requires-python = ">=3.10"

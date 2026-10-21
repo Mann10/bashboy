@@ -263,11 +263,34 @@ def test_file_sourced_key_reaches_provider(
     assert captured["key"] == "file-secret"
 
 
-def test_no_key_reason_mentions_auth_set(cfg: Config) -> None:
+def test_no_key_uses_local_rules_and_hints_at_auth_set(cfg: Config) -> None:
+    result = classify_command("docker build .", cfg=cfg)
+    assert result.decision == "allow"
+    assert result.source == "local-only"
+    assert "local rules only" in result.reason
+    assert "bashboy auth set" in result.reason
+
+
+def test_require_key_denies_when_no_key_is_configured(
+    cfg: Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BASHBOY_REQUIRE_KEY", "1")
     result = classify_command("docker build .", cfg=cfg)
     assert result.decision == "deny"
     assert result.source == "fallback"
-    assert "bashboy auth set" in result.reason
+    assert "BASHBOY_REQUIRE_KEY" in result.reason
+
+
+def test_no_key_still_denies_the_denylist(cfg: Config) -> None:
+    result = classify_command("rm -rf /", cfg=cfg)
+    assert result.decision == "deny"
+    assert result.source == "denylist"
+
+
+def test_no_key_still_allows_the_allowlist(cfg: Config) -> None:
+    result = classify_command("git status", cfg=cfg)
+    assert result.decision == "allow"
+    assert result.source == "allowlist"
 
 
 def test_debug_logs_key_source_but_not_the_token(

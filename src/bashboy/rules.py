@@ -122,36 +122,187 @@ _RM_PROTECTED_TARGET = (
 _RM_PROTECTED = re.compile(_RM_PREFIX + _RM_PROTECTED_TARGET, re.IGNORECASE)
 _RM_WILDCARD = re.compile(_RM_PREFIX + r"(?:\./)?\*(?=\s|$)", re.IGNORECASE)
 
-DENY_RULES: list[tuple[re.Pattern[str], str]] = [
-    (_RM_PROTECTED, "recursive delete of a protected path"),
-    (_RM_WILDCARD, "recursive delete of a wildcard target at the filesystem root"),
-    (re.compile(r"\bmkfs(?:\.[a-z0-9]+)?\b", re.IGNORECASE), "filesystem creation on a device"),
-    (re.compile(r"\b(?:fdisk|parted|diskpart)\b", re.IGNORECASE), "disk partitioning"),
-    (re.compile(r"\bformat\s+[a-z]:", re.IGNORECASE), "drive format"),
-    (re.compile(r"\bdd\b[^\n]*\bof=/dev/", re.IGNORECASE), "raw write to a block device"),
-    (re.compile(r">\s*/dev/(?:sd|hd|nvme|disk|vd)", re.IGNORECASE), "raw write to a block device"),
-    (re.compile(r"\bshred\b[^\n]*/dev/", re.IGNORECASE), "shred of a block device"),
-    (
-        re.compile(r":\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:[^}]*&\s*\}\s*;\s*:", re.IGNORECASE),
-        "fork bomb",
+# --- rule catalog ---------------------------------------------------------
+#
+# The catalog is the single source of truth for enforcement and for the
+# ``bashboy rules`` listing. Regex rules carry their compiled pattern; the
+# dotenv rule resolves the command word in code, so its pattern is ``None`` and
+# ``check_env_access`` owns it.
+
+_CMD_RECURSIVE_DELETE = re.compile(
+    r"\b(?:del|erase|rd|rmdir)\b[^\n]*\s/[sq]\b", re.IGNORECASE
+)
+_FIND_DELETE = re.compile(
+    r"\bfind\s+/(?:\s|$)[^\n]*(?:-delete|-exec\s+(?:rm|shred)\b)", re.IGNORECASE
+)
+_WIPE = re.compile(r"\b(?:wipefs|blkdiscard)\b", re.IGNORECASE)
+_ENV_DUMP = re.compile(
+    r"^\s*(?:printenv|env|set)\s*$"
+    r"|^\s*export\s+-p\s*$"
+    r"|\b(?:cat|less|more|head|tail|strings|xxd|od)\b[^\n]*/proc/[^\s\"']*/environ\b"
+    r"|\bGet-ChildItem\s+(?:-Path\s+)?Env:"
+    r"|\[Environment\]::GetEnvironmentVariables",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+@dataclass(frozen=True)
+class RuleInfo:
+    """One built-in rule: what fires, why, and a command that demonstrates it."""
+
+    id: str
+    category: str  # "destructive" | "env"
+    reason: str
+    example: str
+    pattern: re.Pattern[str] | None = None
+
+
+RULES: tuple[RuleInfo, ...] = (
+    RuleInfo(
+        "rm-protected-path",
+        "destructive",
+        "recursive delete of a protected path",
+        "rm -rf /",
+        _RM_PROTECTED,
     ),
-    (re.compile(r"\bchmod\s+(?:-[a-zA-Z]+\s+)*777\s+/(?=\s|$)", re.IGNORECASE), "world-writable root"),
-    (re.compile(r"\bchown\s+(?:-[a-zA-Z]+\s+)*\S+\s+/(?=\s|$)", re.IGNORECASE), "ownership change on root"),
-    (re.compile(r"\b(?:shutdown|reboot|halt|poweroff)\b", re.IGNORECASE), "host power control"),
-    (
+    RuleInfo(
+        "rm-wildcard-root",
+        "destructive",
+        "recursive delete of a wildcard target at the filesystem root",
+        "rm -rf *",
+        _RM_WILDCARD,
+    ),
+    RuleInfo(
+        "mkfs",
+        "destructive",
+        "filesystem creation on a device",
+        "mkfs.ext4 /dev/sda1",
+        re.compile(r"\bmkfs(?:\.[a-z0-9]+)?\b", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "disk-partitioning",
+        "destructive",
+        "disk partitioning",
+        "diskpart",
+        re.compile(r"\b(?:fdisk|parted|diskpart)\b", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "drive-format",
+        "destructive",
+        "drive format",
+        "format C:",
+        re.compile(r"\bformat\s+[a-z]:", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "dd-block-device",
+        "destructive",
+        "raw write to a block device",
+        "dd if=image of=/dev/sda",
+        re.compile(r"\bdd\b[^\n]*\bof=/dev/", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "redirect-block-device",
+        "destructive",
+        "raw write to a block device",
+        "echo x > /dev/sda",
+        re.compile(r">\s*/dev/(?:sd|hd|nvme|disk|vd)", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "shred-block-device",
+        "destructive",
+        "shred of a block device",
+        "shred /dev/sda",
+        re.compile(r"\bshred\b[^\n]*/dev/", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "fork-bomb",
+        "destructive",
+        "fork bomb",
+        ":(){ :|:& };:",
+        re.compile(
+            r":\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:[^}]*&\s*\}\s*;\s*:", re.IGNORECASE
+        ),
+    ),
+    RuleInfo(
+        "chmod-root",
+        "destructive",
+        "world-writable root",
+        "chmod 777 /",
+        re.compile(r"\bchmod\s+(?:-[a-zA-Z]+\s+)*777\s+/(?=\s|$)", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "chown-root",
+        "destructive",
+        "ownership change on root",
+        "chown me /",
+        re.compile(r"\bchown\s+(?:-[a-zA-Z]+\s+)*\S+\s+/(?=\s|$)", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "power-control",
+        "destructive",
+        "host power control",
+        "shutdown -h now",
+        re.compile(r"\b(?:shutdown|reboot|halt|poweroff)\b", re.IGNORECASE),
+    ),
+    RuleInfo(
+        "windows-drive-root-delete",
+        "destructive",
+        "recursive delete of a drive root",
+        "Remove-Item -Recurse C:\\",
         re.compile(
             r"remove-item\b[^\n]*-recurse[^\n]*(?:[a-z]:[\\/]?\s*$|\s/[\"']?\s*$)",
             re.IGNORECASE,
         ),
-        "recursive delete of a drive root",
     ),
-    (
+    RuleInfo(
+        "windows-recursive-delete",
+        "destructive",
+        "recursive delete (Windows shell)",
+        "rd /s /q C:\\proj",
+        _CMD_RECURSIVE_DELETE,
+    ),
+    RuleInfo(
+        "git-clean-root",
+        "destructive",
+        "git clean at the filesystem root",
+        "git clean -fdx /",
         re.compile(
             r"\bgit\s+clean\s+-[a-zA-Z]*[fdx][a-zA-Z]*[^\n]*(?:\s/(?=\s|$)|\s--\s+/)",
             re.IGNORECASE,
         ),
-        "git clean at the filesystem root",
     ),
+    RuleInfo(
+        "find-root-delete",
+        "destructive",
+        "recursive delete from the filesystem root",
+        "find / -delete",
+        _FIND_DELETE,
+    ),
+    RuleInfo(
+        "disk-wipe",
+        "destructive",
+        "filesystem signature wipe",
+        "wipefs -a /dev/sda",
+        _WIPE,
+    ),
+    RuleInfo(
+        "env-dump",
+        "env",
+        "environment dump (may expose secrets)",
+        "printenv",
+        _ENV_DUMP,
+    ),
+    RuleInfo(
+        "env-dotenv",
+        "env",
+        "access to a .env file (secrets)",
+        "cat .env",
+        None,
+    ),
+)
+
+DENY_RULES: list[tuple[re.Pattern[str], str]] = [
+    (rule.pattern, rule.reason) for rule in RULES if rule.pattern is not None
 ]
 
 # ``rm -rf *`` only denies when it would run at a filesystem root, where the

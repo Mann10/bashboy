@@ -274,3 +274,68 @@ def test_check_env_read_allows_templates_and_other_files() -> None:
     assert rules.check_env_read("README.md") is None
     assert rules.check_env_read(None) is None
     assert rules.check_env_read("") is None
+
+
+# --- catalog + basic Windows/env rules ------------------------------------
+
+
+def test_rule_catalog_is_well_formed() -> None:
+    ids = [rule.id for rule in rules.RULES]
+    assert len(ids) == len(set(ids))
+    assert {rule.category for rule in rules.RULES} == {"destructive", "env"}
+    for rule in rules.RULES:
+        assert rule.id and rule.reason and rule.example
+
+
+def test_rule_catalog_matches_enforcement() -> None:
+    catalog = {rule.pattern for rule in rules.RULES if rule.pattern is not None}
+    assert catalog == {pattern for pattern, _ in rules.DENY_RULES}
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "del /s /q C:\\tmp",
+        "rd /s /q build",
+        "rmdir /s build",
+        "find / -delete",
+        "find / -exec rm -rf {} \\;",
+        "wipefs -a /dev/sda",
+        "blkdiscard /dev/nvme0n1",
+    ],
+)
+def test_new_destructive_rules_are_denied(command: str) -> None:
+    assert rules.check_denylist(command) is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "printenv",
+        "env",
+        "set",
+        "export -p",
+        "cat /proc/self/environ",
+        "Get-ChildItem Env:",
+        "[Environment]::GetEnvironmentVariables()",
+    ],
+)
+def test_environment_dumps_are_denied(command: str) -> None:
+    hit = rules.check_denylist(command)
+    assert hit is not None
+    assert "environment dump" in hit.reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "printenv PATH",
+        "env FOO=1 ls",
+        "set -e",
+        "Get-ChildItem .",
+        "del file.txt",
+        "find . -delete",
+    ],
+)
+def test_environment_and_windows_false_positives_are_allowed(command: str) -> None:
+    assert rules.check_denylist(command) is None

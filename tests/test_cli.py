@@ -47,12 +47,49 @@ def test_check_json_keys_are_exact(capsys: pytest.CaptureFixture[str]) -> None:
     assert list(payload) == ["decision", "source", "reason", "risk", "latency_ms"]
 
 
-def test_check_ambiguous_without_key_falls_back(capsys: pytest.CaptureFixture[str]) -> None:
+def test_check_ambiguous_without_key_uses_local_rules(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = run(["check", "--command", "docker run --rm alpine sh", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["decision"] == "allow"
+    assert payload["source"] == "local-only"
+
+
+def test_check_require_key_without_key_denies(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BASHBOY_REQUIRE_KEY", "1")
     code = run(["check", "--command", "docker run --rm alpine sh", "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert code == 1
-    assert payload["decision"] == "deny"
     assert payload["source"] == "fallback"
+
+
+def test_rules_lists_destructive_and_env(capsys: pytest.CaptureFixture[str]) -> None:
+    code = run(["rules"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "destructive:" in out
+    assert "env:" in out
+    assert "rm-protected-path" in out
+    assert "env-dotenv" in out
+
+
+def test_rules_json_contract(capsys: pytest.CaptureFixture[str]) -> None:
+    code = run(["rules", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["rules"]
+    assert set(payload["rules"][0]) == {"id", "category", "reason", "example"}
+
+
+def test_rules_category_filter(capsys: pytest.CaptureFixture[str]) -> None:
+    run(["rules", "--category", "env", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["rules"]
+    assert {rule["category"] for rule in payload["rules"]} == {"env"}
 
 
 def test_check_compound_injection_is_denied(capsys: pytest.CaptureFixture[str]) -> None:
@@ -73,9 +110,16 @@ def test_check_requires_command(capsys: pytest.CaptureFixture[str]) -> None:
 def test_check_cwd_flag(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
     code = run(["check", "--command", "rm -rf *", "--cwd", str(tmp_path), "--json"])
     payload = json.loads(capsys.readouterr().out)
-    assert code == 1
+    assert code == 0
     # Not at a filesystem root, so the wildcard denylist rule must not fire.
-    assert payload["source"] == "fallback"
+    assert payload["source"] == "local-only"
+
+
+def test_check_wildcard_at_root_is_denied(capsys: pytest.CaptureFixture[str]) -> None:
+    code = run(["check", "--command", "rm -rf *", "--cwd", "/", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert payload["source"] == "denylist"
 
 
 def test_check_claude_hook_reads_stdin(

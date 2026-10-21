@@ -10,8 +10,8 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 1 of 3 (Classifier core)
-Status: v0.2.1 shipped; 0.3.0 adds dotenv protection and quoted destructive-target matching
-Last activity: 2026-10-21 - Reviewed the safety-hooks plugin and implemented its dotenv guard (0.3.0)
+Status: v0.3.1 shipped; 0.4.0 adds local-only mode and a browsable rule catalog
+Last activity: 2026-10-21 - Added local-only mode and `bashboy rules` (0.4.0)
 
 Progress: [███████---] 75%
 
@@ -40,10 +40,18 @@ Progress: [███████---] 75%
 - Adopted the command-position idea from `safety-hooks` (pchalasani/claude-code-tools,
   MIT), not its code. Deliberate divergences: binary verdict (no `ask`), fail closed
   (no `{"decision":"approve"}` fallback), no alias expansion, no file-length hook.
+- No API key means **local-only**: the denylist/allowlist still run, known-bad is
+  denied, and unknown commands get no objection (the host's permission flow decides).
+  `BASHBOY_REQUIRE_KEY=1` turns unknown commands into `deny/fallback`.
+- A single `RULES` catalog drives both enforcement and `bashboy rules`; the dotenv
+  rule is code-based (`pattern=None`) and listed alongside the regex rules.
+- Added basic Windows recursive deletes (`del /s`, `rd /s`), `find / -delete`,
+  `wipefs`/`blkdiscard`, and environment-dump rules (`printenv`, bare `env`/`set`,
+  `export -p`, `/proc/*/environ`, PowerShell `Env:`).
 
 ### Pending Todos
 
-- Publish `0.3.0` (dotenv guard + quoted targets) and confirm `uvx bashboy version`.
+- Publish `0.4.0` (local-only mode + `bashboy rules`) and confirm `uvx bashboy version`.
 - Optional: gate OpenCode's `read` tool the same way as Claude's `Read` (currently only shell tools are hooked there).
 
 ### Releases
@@ -53,7 +61,9 @@ Progress: [███████---] 75%
 - `0.2.0` published to PyPI on 2026-10-21 (file-based credentials + `bashboy auth`);
   it fails every provider call with HTTP 403 because of Cloudflare error 1010.
 - `0.2.1` fixes the User-Agent; published 2026-10-21, `uvx bashboy version` confirmed.
-- `0.3.0` adds the dotenv guard and quoted destructive-target matching; tag pending.
+- `0.3.0` added the dotenv guard and quoted destructive-target matching; `0.3.1`
+  added Windows drive-root deletes. Neither is tagged.
+- `0.4.0` adds local-only mode and the `bashboy rules` catalog; tag pending.
 
 ### Blockers/Concerns
 

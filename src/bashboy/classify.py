@@ -6,9 +6,11 @@ Precedence is fixed and auditable:
 2. Blank command -- deny, source ``fallback``.
 3. Denylist -- deny, source ``denylist``.
 4. Allowlist -- allow, source ``allowlist``.
-5. Model -- allow/deny, source ``model``; any failure becomes ``fallback``.
+5. No API key -- allow, source ``local-only`` (the host's own permission flow
+   still runs). ``BASHBOY_REQUIRE_KEY=1`` turns this step into a deny.
+6. Model -- allow/deny, source ``model``; any failure becomes ``fallback``.
 
-The provider is imported lazily inside branch 5 so the fast paths never pay for
+The provider is imported lazily inside branch 6 so the fast paths never pay for
 ``urllib`` or ``json`` at startup.
 """
 
@@ -20,6 +22,7 @@ import time
 from dataclasses import dataclass
 
 from .config import Config, load_config, resolve_api_key
+from .credentials import CredentialError
 from .rules import check_allowlist, check_denylist
 
 _TRUTHY = frozenset({"1", "true", "yes"})
@@ -101,12 +104,41 @@ def classify_command(
                 "allow", "allowlist", f"matches allowlist: {label}", None, latency
             )
 
+    try:
+        key, key_source = resolve_api_key(cfg)
+    except CredentialError as exc:
+        latency = _elapsed_ms(started)
+        log(f"credential error: {exc} (latency={latency}ms)")
+        return Classification(
+            "deny", "fallback", f"credential error: {exc}", None, latency
+        )
+
+    if key is not None:
+        log(f"api key source: {key_source}")  # source label only -- never the token
+    elif provider is None:
+        latency = _elapsed_ms(started)
+        if _enabled("BASHBOY_REQUIRE_KEY"):
+            log(f"no API key and BASHBOY_REQUIRE_KEY is set: denying (latency={latency}ms)")
+            return Classification(
+                "deny",
+                "fallback",
+                "no API key configured and BASHBOY_REQUIRE_KEY is set",
+                None,
+                latency,
+            )
+        log(f"no API key: local rules only (latency={latency}ms)")
+        return Classification(
+            "allow",
+            "local-only",
+            "no API key configured; local rules only (run 'bashboy auth set' for model checks)",
+            None,
+            latency,
+        )
+
     from .provider import Provider
 
     target_cwd = cwd or os.getcwd()
     try:
-        key, key_source = resolve_api_key(cfg)
-        log(f"api key source: {key_source}")  # source label only -- never the token
         model = provider if provider is not None else Provider(cfg.provider, key=key)
         verdict = model.classify(target_cwd, command)  # type: ignore[attr-defined]
     except Exception as exc:  # noqa: BLE001 - every failure must map to a verdict

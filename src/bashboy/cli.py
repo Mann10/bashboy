@@ -91,6 +91,40 @@ def _cmd_check(args: argparse.Namespace) -> int:
     return 0 if result.decision == "allow" else 1
 
 
+# --- rules ----------------------------------------------------------------
+
+
+def _cmd_rules(args: argparse.Namespace) -> int:
+    from .rules import RULES
+
+    selected = [
+        rule for rule in RULES if args.category == "all" or rule.category == args.category
+    ]
+    if args.json:
+        payload = {
+            "rules": [
+                {
+                    "id": rule.id,
+                    "category": rule.category,
+                    "reason": rule.reason,
+                    "example": rule.example,
+                }
+                for rule in selected
+            ]
+        }
+        print(json.dumps(payload))
+        return 0
+
+    current = None
+    for rule in selected:
+        if rule.category != current:
+            current = rule.category
+            print(f"{current}:")
+        print(f"  {rule.id:<28} {rule.reason}")
+        print(f"  {'':<28} e.g. {rule.example}")
+    return 0
+
+
 # --- config ---------------------------------------------------------------
 
 
@@ -216,6 +250,7 @@ def _cmd_auth_status(args: argparse.Namespace) -> int:
         print("key: refused")
     else:
         print("key: absent")
+        print("mode: local rules only (unknown commands are not sent to the model)")
 
     if args.check:
         if key:
@@ -377,6 +412,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="read a Claude Code PreToolUse payload from stdin",
     )
     check.set_defaults(handler=_cmd_check)
+
+    rules = sub.add_parser("rules", help="list the built-in destructive and env rules")
+    rules.add_argument("--json", action="store_true", help="emit one JSON object")
+    rules.add_argument(
+        "--category",
+        choices=["all", "destructive", "env"],
+        default="all",
+        help="show only one category",
+    )
+    rules.set_defaults(handler=_cmd_rules)
 
     install = sub.add_parser("install", help="install host integrations")
     install.add_argument("--claude", action="store_true", help="install the Claude Code hook")

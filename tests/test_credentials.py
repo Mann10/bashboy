@@ -309,11 +309,13 @@ def test_read_token_ignores_directories(tmp_path) -> None:
 # --- error message quality ------------------------------------------------
 
 
-def test_no_key_reason_mentions_auth_set(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_key_uses_local_rules_and_hints_at_auth_set(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     cfg = cfg_for(tmp_path, monkeypatch, tmp_path / "absent")
     result = classify_command("docker build .", cfg=cfg)
-    assert result.decision == "deny"
-    assert result.source == "fallback"
+    assert result.decision == "allow"
+    assert result.source == "local-only"
     assert "bashboy auth set" in result.reason
 
 
