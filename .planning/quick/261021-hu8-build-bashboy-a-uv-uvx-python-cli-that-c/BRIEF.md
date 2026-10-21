@@ -11,7 +11,7 @@ technically impossible. The planner turns this into `261021-hu8-PLAN.md`; the ex
 It has three layers:
 
 1. **Local fast paths** (no network): hard denylist and hard allowlist.
-2. **Model classification** (JEV API) for everything else.
+2. **Model classification** (Clocked API) for everything else.
 3. **Host adapters**: Claude Code `PreToolUse` hook and OpenCode plugin.
 
 BashBoy only ever *narrows* what may run. `allow` means "no objection" — the host's normal
@@ -102,7 +102,7 @@ Env overrides: `BASHBOY_CONFIG`, `BASHBOY_ENDPOINT`, `BASHBOY_API_KEY_ENV`, `BAS
 `BASHBOY_DISABLE`, `BASHBOY_DEBUG`. Unknown/missing keys fall back to defaults; malformed TOML is a
 clear error (exit 2) from `check`, never a silent allow.
 
-## JEV provider contract (unverified envelope — be tolerant)
+## Clocked provider contract (unverified envelope — be tolerant)
 
 Request `POST <endpoint>`:
 
@@ -232,7 +232,7 @@ export default {
 - `uv run bashboy check --command "docker run --rm alpine sh"` with no API key → deny, `source=fallback`.
 - `bashboy install --claude --dry-run` prints a valid settings object.
 - README documents: install, env var, config, Claude Code setup, OpenCode setup, escape hatch,
-  privacy (command + cwd leave the machine), and the known unverified JEV envelope.
+  privacy (command + cwd leave the machine), and the known unverified Clocked envelope.
 
 ## Constraints
 

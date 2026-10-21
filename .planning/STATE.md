@@ -33,15 +33,15 @@ Progress: [██████----] 60%
 
 ### Pending Todos
 
-- Validate the JEV response envelope with a real `CLOCKED_API_KEY`.
+- Validate the Clocked response envelope with a real `CLOCKED_API_KEY`.
 
 ### Blockers/Concerns
 
-- JEV endpoint (`POST https://clocked.rezolve.ai/clocked/fill`) response shape is
+- Clocked endpoint (`POST https://clocked.rezolve.ai/clocked/fill`) response shape is
   unverified; the adapter must be tolerant and tested against fixtures.
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 261021-hu8 | Build BashBoy: uv/uvx Python CLI classifying shell commands via JEV with local fast paths + Claude Code and OpenCode integrations | 2026-10-21 | d50abc0 | [261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c](./quick/261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c/) |
+| 261021-hu8 | Build BashBoy: uv/uvx Python CLI classifying shell commands via Clocked with local fast paths + Claude Code and OpenCode integrations | 2026-10-21 | d50abc0 | [261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c](./quick/261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c/) |

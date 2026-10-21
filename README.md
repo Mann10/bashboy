@@ -14,7 +14,7 @@ Three layers, in order:
 
 1. **Local fast paths** (no network): a structural allowlist for single read-only
    commands, and a hard denylist for destructive ones.
-2. **Model classification** against the JEV (`clocked/fill`) endpoint for everything
+2. **Model classification** against the Clocked (`clocked/fill`) endpoint for everything
    else.
 3. **Host adapters** that express denial only.
 
@@ -220,7 +220,7 @@ BASHBOY_DISABLE=1 bashboy check --command "rm -rf /"   # allow (disabled)
 ## Privacy
 
 For model classification, the **command text and the working directory** are sent
-to the configured JEV endpoint over HTTPS (`text: "cwd: <cwd>\ncommand: <cmd>"`).
+to the configured Clocked endpoint over HTTPS (`text: "cwd: <cwd>\ncommand: <cmd>"`).
 Nothing else is transmitted; no files are uploaded.
 
 Fast-path verdicts (`denylist`, `allowlist`, `disabled`) never leave the machine.
@@ -228,9 +228,9 @@ There is no analytics, no audit log, no cache, and no telemetry. The API key is
 read from the environment at call time, sent only as the `Authorization` header,
 and never logged, persisted, or included in `config show`.
 
-## Known limitation: unverified JEV envelope
+## Known limitation: unverified Clocked envelope
 
-The response shape of the JEV (`clocked/fill`) endpoint is **unverified**. Parsing
+The response shape of the Clocked (`clocked/fill`) endpoint is **unverified**. Parsing
 is deliberately tolerant (`extract_field` walks nested objects and arrays
 breadth-first, and unwraps `value`/`text`/`answer`/`label`/`result`/`content`
 containers). If the response cannot be resolved to a clear `allow` or `deny`, the
@@ -269,7 +269,7 @@ src/bashboy/
   cli.py            check / install / config / selftest / version
   config.py         TOML defaults, env overrides, API key lookup
   rules.py          structural allowlist + hard denylist (pure)
-  provider.py       JEV client, tolerant envelope parser
+  provider.py       Clocked client, tolerant envelope parser
   classify.py       verdict pipeline (fast paths -> model -> fail closed)
   hooks/claude.py   Claude Code PreToolUse adapter
   installers/       Claude settings.json and OpenCode plugin installers

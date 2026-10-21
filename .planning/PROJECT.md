@@ -4,7 +4,7 @@
 
 A shell-command safety gate for AI coding agents. BashBoy inspects a command before
 it runs, short-circuits the obvious cases locally, and asks a hosted classifier model
-(JEV) about anything ambiguous. It ships as a Python package runnable with `uv`/`uvx`,
+(Clocked) about anything ambiguous. It ships as a Python package runnable with `uv`/`uvx`,
 with integrations for Claude Code (PreToolUse hook) and OpenCode (plugin).
 
 ## Core Value
@@ -23,7 +23,7 @@ must stay fast enough that it never becomes the reason someone disables it.
 
 - Package runs from `uvx` with no runtime dependencies beyond the standard library.
 - Local denylist/allowlist fast paths resolve obvious commands with zero model latency.
-- Ambiguous commands are classified by the JEV API; failures fail closed.
+- Ambiguous commands are classified by the Clocked API; failures fail closed.
 - Claude Code PreToolUse hook integration (deny only, never auto-approve).
 - OpenCode V2 plugin integration (V1 fallback), deny by throwing.
 - Installer writes host config without clobbering unrelated settings.

@@ -1,4 +1,4 @@
-"""JEV (clocked/fill) provider client.
+"""Clocked model client for the `clocked/fill` endpoint.
 
 The response envelope is **unverified**, so parsing is deliberately tolerant:
 :func:`extract_field` walks nested dicts/lists looking for a named field and

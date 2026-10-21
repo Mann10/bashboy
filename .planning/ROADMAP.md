@@ -13,7 +13,7 @@ integrations install and block a destructive command.
 
 | # | Phase | Status |
 |---|-------|--------|
-| 1 | Classifier core (rules + JEV client + verdict) | Planned |
+| 1 | Classifier core (rules + Clocked client + verdict) | Planned |
 | 2 | Host integrations (Claude Code hook, OpenCode plugin) | Planned |
 | 3 | Installer + docs | Planned |
 

@@ -7,7 +7,7 @@ date: 2026-10-21
 # BashBoy: a uv/uvx Python CLI deny-gate for agent shell commands
 
 BashBoy 0.1.0 built end to end: stdlib-only classifier with structural allowlist, hard
-denylist (compound-injection aware), JEV model fallback that fails closed, deny-only Claude
+denylist (compound-injection aware), Clocked model fallback that fails closed, deny-only Claude
 Code `PreToolUse` hook and OpenCode V2/V1 plugin, idempotent non-clobbering installers, and a
 226-test offline suite.
 
@@ -110,5 +110,5 @@ No runtime dependencies were added (`dependencies = []`), and no cache, audit lo
 | Task | Commit |
 |------|--------|
 | 1 | `feat(bashboy): scaffold package, config loader, and fast-path rules` |
-| 2 | `feat(bashboy): add JEV provider, classifier, CLI, and Claude hook` |
+| 2 | `feat(bashboy): add Clocked provider, classifier, CLI, and Claude hook` |
 | 3 | `feat(bashboy): add Claude/OpenCode installers, docs, and E2E acceptance` |
