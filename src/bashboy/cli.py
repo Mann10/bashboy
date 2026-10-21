@@ -7,10 +7,12 @@ JSON in dry-run mode. Diagnostics go to stderr so ``| jq`` and hooks stay clean.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import platform
 import sys
+from getpass import getpass as _getpass
 from pathlib import Path
 
 from . import __version__
@@ -22,11 +24,24 @@ from .config import (
     api_key,
     config_path,
     load_config,
+    resolve_api_key,
+)
+from .credentials import (
+    CredentialError,
+    CredentialExistsError,
+    CredentialPermissionError,
+    clear_token,
+    permissions,
+    write_token,
 )
 
 
 def _toml_bool(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _toml_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def render_config(cfg: Config) -> str:
@@ -35,6 +50,7 @@ def render_config(cfg: Config) -> str:
         "[provider]",
         f'endpoint = "{cfg.provider.endpoint}"',
         f'api_key_env = "{cfg.provider.api_key_env}"',
+        f"api_key_file = {_toml_string(str(cfg.provider.api_key_file))}",
         f"timeout_ms = {cfg.provider.timeout_ms}",
         "",
         "[policy]",
@@ -100,6 +116,142 @@ def _cmd_config(args: argparse.Namespace) -> int:
 
     print(f"bashboy: unknown config action {args.action!r}", file=sys.stderr)
     return 2
+
+
+# --- auth -----------------------------------------------------------------
+
+
+def _credential_target(args: argparse.Namespace, cfg: Config) -> Path:
+    override = getattr(args, "file", None)
+    if override:
+        return Path(override).expanduser().resolve()
+    return cfg.provider.api_key_file
+
+
+def _cmd_auth(args: argparse.Namespace) -> int:
+    print(
+        "usage: bashboy auth {set,status,clear} ... (see `bashboy auth --help`)",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _cmd_auth_set(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    path = _credential_target(args, cfg)
+
+    if args.stdin:
+        token = sys.stdin.read().strip()
+    else:
+        token = _getpass("Clocked API key: ").strip()
+        if token:
+            confirm = _getpass("Repeat to confirm: ").strip()
+            if confirm != token:
+                print("bashboy: tokens did not match", file=sys.stderr)
+                return 2
+    if not token:
+        print("bashboy: no token provided", file=sys.stderr)
+        return 2
+
+    try:
+        write_token(path, token, overwrite=args.force)
+    except CredentialExistsError as exc:
+        print(f"bashboy: {exc}", file=sys.stderr)
+        return 1
+    except (CredentialError, OSError) as exc:
+        print(f"bashboy: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"saved {path}")
+    print(f"permissions: {permissions(path).detail}")
+
+    if os.environ.get(cfg.provider.api_key_env, "").strip():
+        print(
+            f"note: {cfg.provider.api_key_env} is set and takes precedence over the file",
+            file=sys.stderr,
+        )
+
+    from .provider import verify_key  # lazy: keeps `bashboy --help` fast
+
+    try:
+        verdict = verify_key(cfg.provider, token)
+    except Exception as exc:  # noqa: BLE001 - reported, never fatal
+        print(f"provider: FAILED ({exc})")
+        return 2
+    print(f"provider: ok ({verdict.decision})")
+    return 0
+
+
+def _cmd_auth_status(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    path = _credential_target(args, cfg)
+    if path != cfg.provider.api_key_file:
+        # `--file` must drive resolution too, not just the reported path.
+        cfg = dataclasses.replace(
+            cfg, provider=dataclasses.replace(cfg.provider, api_key_file=path)
+        )
+    # The only place the Windows ACL is probed: never on the `check` hot path.
+    state = permissions(path, probe_acl=True)
+
+    print(f"config: {cfg.path}")
+    print(f"endpoint: {cfg.provider.endpoint}")
+    print(f"credential file: {path}")
+    print(f"permissions: {state.detail}")
+    if state.label == "extra-principals":
+        log(f"credential file ACL: {state.detail}")
+
+    try:
+        key, source = resolve_api_key(cfg)
+    except CredentialPermissionError as exc:
+        key, source = None, f"refused ({exc})"
+    except CredentialError as exc:
+        key, source = None, f"unreadable ({exc})"
+    if key and state.label in {"extra-principals", "unverified"}:
+        # The probe above is more specific than the hot-path label in `source`.
+        source = f"file {path} ({state.label})"
+    print(f"key source: {source}")
+    if key:
+        print("key: present")
+    elif source.startswith(("refused", "unreadable")):
+        print("key: refused")
+    else:
+        print("key: absent")
+
+    if args.check:
+        if key:
+            from .provider import verify_key  # lazy: opt-in network call only
+
+            try:
+                verdict = verify_key(cfg.provider, key)
+            except Exception as exc:  # noqa: BLE001 - reported, never fatal
+                print(f"provider: FAILED ({exc})")
+            else:
+                print(f"provider: ok ({verdict.decision})")
+        else:
+            print("provider: skipped (no API key)")
+    return 0
+
+
+def _cmd_auth_clear(args: argparse.Namespace) -> int:
+    cfg = load_config()
+    path = _credential_target(args, cfg)
+    if not path.is_file():
+        print(f"no credential file at {path}")
+        return 0
+
+    if not args.force:
+        answer = input(f"delete {path}? [y/N] ")
+        if answer.strip().lower() not in {"y", "yes"}:
+            print("aborted")
+            return 1
+
+    try:
+        clear_token(path)
+    except OSError as exc:
+        print(f"bashboy: {exc}", file=sys.stderr)
+        return 2
+    print(f"removed {path}")
+    return 0
 
 
 # --- install --------------------------------------------------------------
@@ -241,6 +393,26 @@ def _build_parser() -> argparse.ArgumentParser:
     config.add_argument("--force", action="store_true", help="overwrite an existing config")
     config.set_defaults(handler=_cmd_config)
 
+    auth = sub.add_parser("auth", help="manage the Clocked API key file")
+    auth.set_defaults(handler=_cmd_auth)
+    auth_sub = auth.add_subparsers(dest="auth_action")
+
+    auth_set = auth_sub.add_parser("set", help="save the API key to the credential file")
+    auth_set.add_argument("--file", default=None, help="credential file path")
+    auth_set.add_argument("--stdin", action="store_true", help="read the key from stdin")
+    auth_set.add_argument("--force", action="store_true", help="overwrite an existing file")
+    auth_set.set_defaults(handler=_cmd_auth_set)
+
+    auth_status = auth_sub.add_parser("status", help="show the key source and file permissions")
+    auth_status.add_argument("--file", default=None, help="credential file path")
+    auth_status.add_argument("--check", action="store_true", help="make one live provider call")
+    auth_status.set_defaults(handler=_cmd_auth_status)
+
+    auth_clear = auth_sub.add_parser("clear", help="delete the credential file")
+    auth_clear.add_argument("--file", default=None, help="credential file path")
+    auth_clear.add_argument("--force", action="store_true", help="skip the confirmation prompt")
+    auth_clear.set_defaults(handler=_cmd_auth_clear)
+
     selftest = sub.add_parser("selftest", help="run offline self-checks")
     selftest.set_defaults(handler=_cmd_selftest)
 
@@ -259,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         return int(handler(args))
-    except ConfigError as exc:
+    except (ConfigError, CredentialError) as exc:
         print(f"bashboy: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:  # pragma: no cover - interactive only

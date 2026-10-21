@@ -38,7 +38,7 @@ pipx install bashboy        # pipx alternative
 Verify the install:
 
 ```bash
-bashboy version             # bashboy 0.1.0
+bashboy version             # bashboy 0.2.0
 bashboy selftest            # offline checks; reports provider: ok when the key works
 ```
 
@@ -52,13 +52,53 @@ uvx --from /path/to/BashBoy bashboy install --claude
 The package has **zero runtime dependencies** — everything is the Python standard
 library. `pytest` is a development-only dependency.
 
-The API key is read from the environment (default `CLOCKED_API_KEY`). It is never
-written to disk:
+### API key
+
+The token is resolved at call time; the first hit wins:
+
+| # | Source | Notes |
+|---|--------|-------|
+| 1 | `CLOCKED_API_KEY` (or the variable named by `[provider].api_key_env`) | Process environment; wins over everything |
+| 2 | `BASHBOY_API_KEY_FILE` | Full path to a credential file |
+| 3 | `[provider].api_key_file` in `config.toml` | `~` is expanded |
+| 4 | `~/.bashboy/credentials` | Default per-user file |
+| 5 | nothing | Model-path calls fail closed (`deny`, `source: "fallback"`) |
+
+GUI-launched hosts (Claude Code desktop, OpenCode's background service) do not
+inherit a shell profile, so a variable exported in a terminal is invisible to
+them. `setx` fixes that by exposing the key to every process on the machine. A
+per-user credential file is the middle ground: one host-agnostic location, no
+machine-wide secret, and rotation is a single file write.
 
 ```bash
-export CLOCKED_API_KEY=...        # bash
-$env:CLOCKED_API_KEY = "..."      # PowerShell
+bashboy auth set                    # prompt twice; input is never echoed
+bashboy auth status                 # path, source, presence, permissions
+bashboy auth status --check         # + one live provider call
+bashboy auth clear                  # delete after confirmation
+
+# provisioning / CI
+echo "$CLOCKED_API_KEY" | bashboy auth set --stdin --force
 ```
+
+`auth set` writes the file atomically, creates `~/.bashboy` with mode `0700` on
+POSIX, and sets the file itself to `0600`. The token is never accepted as a
+command-line argument — it would land in shell history and process listings — and
+it is never printed, logged, or stored in `config.toml` (which is shareable and
+gets pasted into issues). `auth status` never prints the value and makes no
+network call unless you pass `--check`.
+
+Permission policy:
+
+- **POSIX:** any group/other permission bit (`mode & 0o077`) is refused with a
+  message naming `chmod 600 <path>`, and the model path fails closed. Failing
+  closed beats silently consuming a leaked secret.
+- **Windows:** the file lives under your user profile, whose default ACL is
+  owner-only. `bashboy auth status` inspects the ACL with `icacls` and reports
+  any extra principals; it warns but still uses the key, because inherited
+  entries are normal. The ACL probe never runs on the `bashboy check` hot path.
+
+The token is read from the file at call time, so rotating it needs no host
+restart. A missing or empty file simply means "no key".
 
 ## Quick start
 
@@ -70,7 +110,7 @@ bashboy check --command "git status"
 # allow (allowlist): matches allowlist: git status
 
 bashboy check --command "docker run --rm alpine sh" --json
-# {"decision": "deny", "source": "fallback", "reason": "classifier unavailable: no API key ...", ...}
+# {"decision": "deny", "source": "fallback", "reason": "classifier unavailable: no API key configured (set CLOCKED_API_KEY or run `bashboy auth set`)", ...}
 ```
 
 Exit codes:
@@ -101,6 +141,7 @@ A missing file means these defaults:
 [provider]
 endpoint = "https://clocked.rezolve.ai/clocked/fill"
 api_key_env = "CLOCKED_API_KEY"
+api_key_file = "~/.bashboy/credentials"
 timeout_ms = 4000
 
 [policy]
@@ -123,6 +164,7 @@ loosens because a file failed to parse.
 | `BASHBOY_CONFIG` | Path to the config file (default `~/.bashboy/config.toml`) |
 | `BASHBOY_ENDPOINT` | Overrides `[provider].endpoint` |
 | `BASHBOY_API_KEY_ENV` | Name of the environment variable holding the key |
+| `BASHBOY_API_KEY_FILE` | Path to the credential file; overrides `[provider].api_key_file` |
 | `BASHBOY_FAIL_MODE` | `closed` (default) or `open`; anything else is an error |
 | `BASHBOY_DISABLE` | `1`/`true`/`yes` disables **all** checks (see below) |
 | `BASHBOY_DEBUG` | `1`/`true`/`yes` writes diagnostics to stderr only |
@@ -238,8 +280,9 @@ Nothing else is transmitted; no files are uploaded.
 
 Fast-path verdicts (`denylist`, `allowlist`, `disabled`) never leave the machine.
 There is no analytics, no audit log, no cache, and no telemetry. The API key is
-read from the environment at call time, sent only as the `Authorization` header,
-and never logged, persisted, or included in `config show`.
+read at call time from the environment or the credential file, sent only as the
+`Authorization` header, and never logged, persisted in `config.toml`, or included
+in `config show`.
 
 ## Known limitation: unverified Clocked envelope
 
@@ -279,8 +322,9 @@ Layout:
 
 ```
 src/bashboy/
-  cli.py            check / install / config / selftest / version
-  config.py         TOML defaults, env overrides, API key lookup
+  cli.py            check / install / config / auth / selftest / version
+  config.py         TOML defaults, env overrides, API key resolution
+  credentials.py    credential file read/write/clear + permission checks
   rules.py          structural allowlist + hard denylist (pure)
   provider.py       Clocked client, tolerant envelope parser
   classify.py       verdict pipeline (fast paths -> model -> fail closed)
