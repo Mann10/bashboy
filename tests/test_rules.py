@@ -190,6 +190,9 @@ def test_denylist_ignores_non_string() -> None:
         "rm -rf ~/",
         "rm -rf '/etc'",
         "rm -rf -- /",
+        "rm -rf C:\\",
+        'rm -rf "C:/"',
+        "rm -rf /c/",
     ],
 )
 def test_quoted_protected_rm_targets_are_denied(command: str) -> None:
@@ -204,6 +207,7 @@ def test_quoted_protected_rm_targets_are_denied(command: str) -> None:
         "rm -rf ./build",
         "rm -rf node_modules",
         "rm -rf 'build dir'",
+        "rm -rf C:\\Users\\me\\build",
     ],
 )
 def test_quoted_safe_rm_targets_are_not_denied(command: str) -> None:
