@@ -1,5 +1,9 @@
 # BashBoy
 
+[![PyPI](https://img.shields.io/pypi/v/bashboy.svg)](https://pypi.org/project/bashboy/)
+[![Python](https://img.shields.io/pypi/pyversions/bashboy.svg)](https://pypi.org/project/bashboy/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 BashBoy is a small, dependency-free Python CLI that classifies a shell command as
 `allow` or `deny` **before** a coding agent runs it. It sits in front of Claude Code
 (`PreToolUse` hook) and OpenCode (plugin) and answers one question: is this command
@@ -23,14 +27,22 @@ cannot answer clearly becomes `deny`.
 
 ## Install
 
-Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/) (recommended; `pipx` works too).
 
 ```bash
-uv tool install bashboy     # install once
+uv tool install bashboy     # install the `bashboy` command
 uvx bashboy --help          # or run without installing
+pipx install bashboy        # pipx alternative
 ```
 
-From a local checkout (uvx resolves the project from the path):
+Verify the install:
+
+```bash
+bashboy version             # bashboy 0.1.0
+bashboy selftest            # offline checks; reports provider: ok when the key works
+```
+
+From a local checkout (for development, before a release is published):
 
 ```bash
 uvx --from /path/to/BashBoy bashboy check --command "git status"
@@ -160,8 +172,9 @@ bashboy install --claude --from /path/to/BashBoy
 
 `--from SPEC` rewrites the argv to
 `["--from", SPEC, "bashboy", "check", "--claude-hook"]`, so `uvx` runs the given
-local checkout. The path is written verbatim as a single argv element — never
-interpolated into a shell string.
+local checkout. Use it only for a checkout or an unreleased build; a normal
+published install needs no `--from`. The path is written verbatim as a single
+argv element — never interpolated into a shell string.
 
 The hook reads one JSON object on stdin. On `deny` it prints the
 `hookSpecificOutput` envelope with `permissionDecision: "deny"`; on `allow`, blank

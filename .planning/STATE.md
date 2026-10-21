@@ -35,6 +35,11 @@ Progress: [██████----] 60%
 
 - Validate the Clocked response envelope with a real `CLOCKED_API_KEY`.
 
+### Releases
+
+- `0.1.0` published to PyPI on 2026-10-21 via GitHub trusted publishing
+  (`.github/workflows/release.yml`, tag `v0.1.0`).
+
 ### Blockers/Concerns
 
 - Clocked endpoint (`POST https://clocked.rezolve.ai/clocked/fill`) response shape is
