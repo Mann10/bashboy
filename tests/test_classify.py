@@ -234,3 +234,55 @@ def test_no_debug_logging_by_default(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
+
+
+def test_file_sourced_key_reaches_provider(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bashboy.credentials import write_token
+
+    key_file = tmp_path / "cred"
+    write_token(key_file, "file-secret")
+    monkeypatch.setenv("BASHBOY_API_KEY_FILE", str(key_file))
+    cfg = load_config(cfg.path)
+    captured: dict[str, object] = {}
+
+    real_provider = provider_module.Provider
+
+    class CapturingProvider(real_provider):
+        def __init__(self, provider_cfg: ProviderConfig, transport=None, key=None) -> None:
+            captured["key"] = key
+            super().__init__(provider_cfg, transport=transport, key=key)
+
+        def classify(self, cwd: str, command: str) -> Verdict:
+            return Verdict("allow", None, "ok")
+
+    monkeypatch.setattr(provider_module, "Provider", CapturingProvider)
+    result = classify_command("docker run --rm alpine true", cfg=cfg)
+    assert result.source == "model"
+    assert captured["key"] == "file-secret"
+
+
+def test_no_key_reason_mentions_auth_set(cfg: Config) -> None:
+    result = classify_command("docker build .", cfg=cfg)
+    assert result.decision == "deny"
+    assert result.source == "fallback"
+    assert "bashboy auth set" in result.reason
+
+
+def test_debug_logs_key_source_but_not_the_token(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from bashboy.credentials import write_token
+
+    key_file = tmp_path / "cred"
+    write_token(key_file, "file-secret-token")
+    monkeypatch.setenv("BASHBOY_API_KEY_FILE", str(key_file))
+    monkeypatch.setenv("BASHBOY_DEBUG", "1")
+    cfg = load_config(cfg.path)
+    spy = SpyProvider(Verdict("allow", None, "ok"))
+    classify_command("docker build .", cfg=cfg, provider=spy)
+    captured = capsys.readouterr()
+    assert "api key source: file" in captured.err
+    assert "file-secret-token" not in captured.err
+    assert "file-secret-token" not in captured.out

@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from bashboy import config
 
 
 @pytest.fixture(autouse=True)
-def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def clean_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     for name in (
         "BASHBOY_CONFIG",
         "BASHBOY_ENDPOINT",
         "BASHBOY_API_KEY_ENV",
+        "BASHBOY_API_KEY_FILE",
         "BASHBOY_FAIL_MODE",
         "CLOCKED_API_KEY",
     ):
@@ -168,6 +171,7 @@ def test_load_config_uses_env_path(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_api_key_reads_environment(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BASHBOY_API_KEY_FILE", str(tmp_path / "absent-credential-file"))
     cfg = config.load_config(tmp_path / "missing.toml")
     assert config.api_key(cfg) is None
     monkeypatch.setenv("CLOCKED_API_KEY", "  secret  ")
@@ -182,3 +186,71 @@ def test_api_key_honours_custom_env_name(tmp_path, monkeypatch: pytest.MonkeyPat
     cfg = config.load_config(path)
     monkeypatch.setenv("OTHER_KEY", "abc")
     assert config.api_key(cfg) == "abc"
+
+
+def test_api_key_file_default(tmp_path) -> None:
+    cfg = config.load_config(tmp_path / "missing.toml")
+    assert cfg.provider.api_key_file == Path.home() / ".bashboy" / "credentials"
+
+
+def test_api_key_file_toml_expands_tilde(tmp_path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[provider]\napi_key_file = "~/custom/cred"\n', encoding="utf-8")
+    cfg = config.load_config(path)
+    assert cfg.provider.api_key_file == Path.home() / "custom" / "cred"
+
+
+def test_api_key_file_absolute_path_is_kept(tmp_path) -> None:
+    target = tmp_path / "cred"
+    path = tmp_path / "config.toml"
+    path.write_text(f'[provider]\napi_key_file = "{target.as_posix()}"\n', encoding="utf-8")
+    cfg = config.load_config(path)
+    assert cfg.provider.api_key_file == target
+
+
+def test_api_key_file_relative_path_raises(tmp_path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[provider]\napi_key_file = "relative/cred"\n', encoding="utf-8")
+    with pytest.raises(config.ConfigError) as excinfo:
+        config.load_config(path)
+    assert "api_key_file" in str(excinfo.value)
+
+
+def test_api_key_file_empty_raises(tmp_path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[provider]\napi_key_file = "   "\n', encoding="utf-8")
+    with pytest.raises(config.ConfigError) as excinfo:
+        config.load_config(path)
+    assert "api_key_file" in str(excinfo.value)
+
+
+def test_default_config_toml_has_api_key_file() -> None:
+    assert 'api_key_file = "~/.bashboy/credentials"' in config.DEFAULT_CONFIG_TOML
+
+
+def test_api_key_file_env_beats_toml(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[provider]\napi_key_file = "~/from-toml"\n', encoding="utf-8")
+    override = tmp_path / "from-env"
+    monkeypatch.setenv("BASHBOY_API_KEY_FILE", str(override))
+    cfg = config.load_config(path)
+    assert cfg.provider.api_key_file == override
+
+
+def test_env_overrides_do_not_drop_api_key_file(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[provider]\napi_key_file = "~/kept"\n', encoding="utf-8")
+    monkeypatch.setenv("BASHBOY_ENDPOINT", "https://env.test/fill")
+    monkeypatch.setenv("BASHBOY_API_KEY_ENV", "ENV_KEY")
+    cfg = config.load_config(path)
+    assert cfg.provider.api_key_file == Path.home() / "kept"
+
+
+def test_resolve_api_key_source_labels(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BASHBOY_API_KEY_FILE", str(tmp_path / "absent-credential-file"))
+    cfg = config.load_config(tmp_path / "missing.toml")
+    assert config.resolve_api_key(cfg) == (None, "none")
+    monkeypatch.setenv("CLOCKED_API_KEY", "secret")
+    assert config.resolve_api_key(cfg) == ("secret", "env CLOCKED_API_KEY")
+    monkeypatch.setenv("CLOCKED_API_KEY", "   ")
+    assert config.resolve_api_key(cfg) == (None, "none")

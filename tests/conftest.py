@@ -8,6 +8,7 @@ _ENV_VARS = (
     "BASHBOY_CONFIG",
     "BASHBOY_ENDPOINT",
     "BASHBOY_API_KEY_ENV",
+    "BASHBOY_API_KEY_FILE",
     "BASHBOY_FAIL_MODE",
     "BASHBOY_DISABLE",
     "BASHBOY_DEBUG",
@@ -20,3 +21,7 @@ def isolate_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     for name in _ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("BASHBOY_CONFIG", str(tmp_path / "bashboy-config.toml"))
+    # Never let a developer's real ~/.bashboy/credentials leak into the suite.
+    monkeypatch.setenv(
+        "BASHBOY_API_KEY_FILE", str(tmp_path / "bashboy-api-key-file-absent")
+    )

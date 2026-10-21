@@ -13,6 +13,7 @@ hang and not an ``allow``.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import urllib.error
 import urllib.request
@@ -167,7 +168,9 @@ class Provider:
     def classify(self, cwd: str, command: str) -> Verdict:
         key = (self._key or "").strip()
         if not key:
-            raise ProviderError(f"no API key configured (env {self.cfg.api_key_env})")
+            raise ProviderError(
+                f"no API key configured (set {self.cfg.api_key_env} or run `bashboy auth set`)"
+            )
 
         body = build_request_body(cwd, command)
         encoded = json.dumps(body).encode("utf-8")
@@ -213,3 +216,12 @@ class Provider:
         )
 
         return Verdict(decision=verdict, risk=risk, reason=reason)
+
+
+def verify_key(cfg: ProviderConfig, key: str, cwd: str | None = None) -> Verdict:
+    """Make one real provider call with a benign command to validate ``key``.
+
+    Used by ``bashboy auth set`` / ``auth status --check``. Raises the same
+    :class:`ProviderError` subclasses as :meth:`Provider.classify`.
+    """
+    return Provider(cfg, key=key).classify(cwd or os.getcwd(), "git status")

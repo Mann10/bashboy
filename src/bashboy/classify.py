@@ -19,7 +19,7 @@ import sys
 import time
 from dataclasses import dataclass
 
-from .config import Config, api_key, load_config
+from .config import Config, load_config, resolve_api_key
 from .rules import check_allowlist, check_denylist
 
 _TRUTHY = frozenset({"1", "true", "yes"})
@@ -105,7 +105,9 @@ def classify_command(
 
     target_cwd = cwd or os.getcwd()
     try:
-        model = provider if provider is not None else Provider(cfg.provider, key=api_key(cfg))
+        key, key_source = resolve_api_key(cfg)
+        log(f"api key source: {key_source}")  # source label only -- never the token
+        model = provider if provider is not None else Provider(cfg.provider, key=key)
         verdict = model.classify(target_cwd, command)  # type: ignore[attr-defined]
     except Exception as exc:  # noqa: BLE001 - every failure must map to a verdict
         fail_open = cfg.policy.fail_mode == "open"

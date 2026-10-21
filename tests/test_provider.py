@@ -92,6 +92,7 @@ def test_no_api_key_never_calls_transport() -> None:
     with pytest.raises(provider.ProviderError) as excinfo:
         p.classify("/tmp", "ls")
     assert "CLOCKED_API_KEY" in str(excinfo.value)
+    assert "bashboy auth set" in str(excinfo.value)
     assert transport.calls == []
 
 
