@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 
 Phase: 1 of 3 (Classifier core)
 Status: 0.4.0 committed; 0.5.0 adds the layered org/user/project policy engine
-Last activity: 2026-10-21 - Added layered policy files and `bashboy policy` (0.5.0)
+Last activity: 2026-10-22 - Added layered policy files and `bashboy policy` (0.5.0)
 
 Progress: [███████---] 75%
 
@@ -89,4 +89,4 @@ Progress: [███████---] 75%
 |---|-------------|------|--------|-----------|
 | 261021-hu8 | Build BashBoy: uv/uvx Python CLI classifying shell commands via Clocked with local fast paths + Claude Code and OpenCode integrations | 2026-10-21 | d50abc0 | [261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c](./quick/261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c/) |
 | 261021-iz1 | Add file-based Clocked credentials: `api_key_file`, `BASHBOY_API_KEY_FILE`, `bashboy auth set/status/clear` | 2026-10-21 | f15f007 | [261021-iz1-add-file-based-clocked-credentials-provi](./quick/261021-iz1-add-file-based-clocked-credentials-provi/) |
-| 261021-policy | Add layered org/user/project TOML policy engine with `bashboy policy path/show/test/init`, tighten-only project rules, and org lock-down flags | 2026-10-21 | — | — |
+| 261021-policy | Add layered org/user/project TOML policy engine with `bashboy policy path/show/test/init`, tighten-only project rules, and org lock-down flags | 2026-10-22 | e942d3e | — |
