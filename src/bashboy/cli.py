@@ -125,6 +125,142 @@ def _cmd_rules(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- policy ---------------------------------------------------------------
+
+
+def _policy_init_target(scope: str, cwd: str) -> Path:
+    from .policy import org_policy_path, user_policy_path
+
+    if scope == "org":
+        return org_policy_path()
+    if scope == "project":
+        return Path(cwd) / ".bashboy" / "policy.toml"
+    return user_policy_path()
+
+
+def _cmd_policy(args: argparse.Namespace) -> int:
+    from .policy import (
+        ORG_TEMPLATE,
+        TEMPLATE,
+        PolicyError,
+        evaluate_policy,
+        load_policy,
+        policy_paths,
+    )
+
+    if args.action == "path":
+        for source, path in policy_paths(args.cwd):
+            state = "exists" if path.is_file() else "missing"
+            print(f"{source}: {path} ({state})")
+        return 0
+
+    if args.action == "init":
+        target = _policy_init_target(args.scope, args.cwd)
+        if target.exists() and not args.force:
+            print(f"{target} already exists; re-run with --force to overwrite")
+            return 1
+        template = ORG_TEMPLATE if args.scope == "org" else TEMPLATE
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(template, encoding="utf-8")
+        except OSError as exc:
+            print(f"bashboy: cannot write {target}: {exc}", file=sys.stderr)
+            return 2
+        print(f"wrote {target}")
+        if args.scope == "org":
+            print(
+                "note: the system policy is normally admin-owned; "
+                "deploy it with your MDM/configuration tool",
+                file=sys.stderr,
+            )
+        return 0
+
+    try:
+        policy = load_policy(args.cwd)
+    except PolicyError as exc:
+        print(f"bashboy: {exc}", file=sys.stderr)
+        return 2
+
+    if args.action == "show":
+        if args.json:
+            payload = {
+                "flags": dataclasses.asdict(policy.flags),
+                "sources": [
+                    {"source": source, "path": str(path), "exists": exists}
+                    for source, path, exists in policy.sources
+                ],
+                "rules": [
+                    {
+                        "id": rule.id,
+                        "action": rule.action,
+                        "source": rule.source,
+                        "path": str(rule.path),
+                        "reason": rule.reason,
+                        "match": rule.regex.pattern if rule.regex is not None else None,
+                        "contains": rule.contains,
+                        "cwd": rule.cwd,
+                        "ignored": rule.ignored,
+                    }
+                    for rule in policy.rules
+                ],
+            }
+            print(json.dumps(payload))
+            return 0
+
+        print("sources:")
+        for source, path, exists in policy.sources:
+            print(f"  {source:<8} {path} ({'exists' if exists else 'missing'})")
+        flags = policy.flags
+        print(
+            "flags: "
+            f"immutable={_toml_bool(flags.immutable)} "
+            f"disable_escape_hatch={_toml_bool(flags.disable_escape_hatch)} "
+            f"require_key={_toml_bool(flags.require_key)}"
+        )
+        if not policy.rules:
+            print("rules: none")
+            return 0
+        print("rules:")
+        for rule in policy.rules:
+            detail = (
+                f"match={rule.regex.pattern!r}"
+                if rule.regex is not None
+                else f"contains={rule.contains!r}"
+            )
+            if rule.cwd is not None:
+                detail += f" cwd={rule.cwd!r}"
+            suffix = f" [ignored: {rule.ignored}]" if rule.ignored else ""
+            print(
+                f"  {rule.source:<8} {rule.id:<24} {rule.action:<5} "
+                f"{detail} -- {rule.reason}{suffix}"
+            )
+        return 0
+
+    # action == "test"
+    if not args.command:
+        print("bashboy: policy test requires a command", file=sys.stderr)
+        return 2
+    hit = evaluate_policy(policy, args.command, args.cwd)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "matched": hit is not None,
+                    "decision": hit.decision if hit is not None else None,
+                    "rule": hit.rule_id if hit is not None else None,
+                    "source": hit.source if hit is not None else None,
+                    "reason": hit.reason if hit is not None else None,
+                }
+            )
+        )
+        return 0
+    if hit is None:
+        print("no policy match")
+    else:
+        print(f"{hit.decision} (policy {hit.rule_id} from {hit.source}): {hit.reason}")
+    return 0
+
+
 # --- config ---------------------------------------------------------------
 
 
@@ -422,6 +558,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="show only one category",
     )
     rules.set_defaults(handler=_cmd_rules)
+
+    policy = sub.add_parser(
+        "policy", help="inspect and test the layered org/user/project policy"
+    )
+    policy.add_argument(
+        "action",
+        nargs="?",
+        choices=["path", "show", "test", "init"],
+        default="path",
+        help="path (default), show, test, or init",
+    )
+    policy.add_argument(
+        "command", nargs="?", default=None, help="command to evaluate for `policy test`"
+    )
+    policy.add_argument("--json", action="store_true", help="emit one JSON object")
+    policy.add_argument("--cwd", default=os.getcwd(), help="working directory for matching")
+    policy.add_argument(
+        "--scope",
+        choices=["user", "project", "org"],
+        default="user",
+        help="target for `policy init`",
+    )
+    policy.add_argument("--force", action="store_true", help="overwrite an existing file")
+    policy.set_defaults(handler=_cmd_policy)
 
     install = sub.add_parser("install", help="install host integrations")
     install.add_argument("--claude", action="store_true", help="install the Claude Code hook")

@@ -29,7 +29,7 @@ cannot answer clearly becomes `deny`.
 
 ## Install
 
-Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/) (recommended; `pipx` works too).
+Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/) (recommended; `pipx` works too).
 
 ```bash
 uv tool install bashboy     # install the `bashboy` command
@@ -40,7 +40,7 @@ pipx install bashboy        # pipx alternative
 Verify the install:
 
 ```bash
-bashboy version             # bashboy 0.4.0
+bashboy version             # bashboy 0.5.0
 bashboy selftest            # offline checks; reports provider: ok when the key works
 ```
 
@@ -124,7 +124,7 @@ bashboy check --command "git status"
 # allow (allowlist): matches allowlist: git status
 
 bashboy check --command "docker run --rm alpine sh" --json
-# {"decision": "deny", "source": "fallback", "reason": "classifier unavailable: no API key configured (set CLOCKED_API_KEY or run `bashboy auth set`)", ...}
+# {"decision": "allow", "source": "local-only", "reason": "no API key configured; local rules only (run 'bashboy auth set' for model checks)", ...}
 ```
 
 Exit codes:
@@ -141,9 +141,9 @@ Exit codes:
 {"decision":"deny","source":"denylist","reason":"recursive delete of a protected path","risk":null,"latency_ms":0}
 ```
 
-`source` is one of `denylist`, `allowlist`, `model`, `local-only`, `fallback`,
-`disabled`. `--cwd DIR` supplies the working directory used for context (default:
-current directory).
+`source` is one of `denylist`, `allowlist`, `policy`, `model`, `local-only`,
+`fallback`, `disabled`. `--cwd DIR` supplies the working directory used for
+context (default: current directory).
 
 ## Built-in rules
 
@@ -163,6 +163,72 @@ environment.
 
 Rules run before the allowlist, so `cat .env` is denied even though `cat` is
 allowlisted. Denials cost zero network calls.
+
+## Company and project policy
+
+The built-in rules are the floor; teams can add their own without forking
+BashBoy. Three TOML files are layered, highest precedence first:
+
+| Scope | Default path | Controlled by |
+|-------|--------------|---------------|
+| org | `/etc/bashboy/policy.toml` or `%ProgramData%\BashBoy\policy.toml` | admins / MDM |
+| user | `~/.bashboy/policy.toml` | the developer |
+| project | nearest `.bashboy/policy.toml` walking up from the working directory | the repository |
+
+First match wins, then the built-in denylist/allowlist run. `BASHBOY_POLICY`
+points at one explicit file and replaces discovery (CI/tests); the per-scope
+`BASHBOY_POLICY_ORG`, `BASHBOY_POLICY_USER`, and `BASHBOY_POLICY_PROJECT`
+override individual paths.
+
+```toml
+version = 1
+
+[[rule]]
+id = "no-prod-db"
+action = "deny"          # deny | allow
+match = '(?i)\bpsql\b.*\bprod'
+reason = "Production database access is prohibited"
+# cwd = "/srv/prod/**"   # optional glob; * also matches /
+```
+
+`match` is a Python regex; `contains` is a literal substring. Use exactly one.
+Rules see the raw command and every executable fragment, so `ls; psql prod`
+matches a rule for `psql`. A `deny` beats the built-in allowlist. An `allow`
+rule is how a user or an org deliberately permits a command the built-in
+denylist would otherwise block — that is the intentional-destructive-command
+escape, and it stays a human policy edit, never something the agent can grant
+itself.
+
+Project policies are **tighten-only**: a checked-in `allow` rule is ignored, so
+cloning an untrusted repository cannot loosen the gate. The org file can also
+lock things down:
+
+```toml
+[policy]
+immutable = true             # ignore user/project allow rules
+disable_escape_hatch = true  # ignore BASHBOY_DISABLE
+require_key = true           # no key means deny, not local-only
+```
+
+Inspect and test the result:
+
+```bash
+bashboy policy path                 # which files are in play
+bashboy policy show                 # effective rules and ignored entries
+bashboy policy show --json
+bashboy policy test "psql prod"     # which rule would fire, and from where
+bashboy policy test "psql prod" --json
+bashboy policy init --scope user    # commented template
+bashboy policy init --scope project
+bashboy policy init --scope org     # deploy this with MDM/Ansible/Intune
+```
+
+A malformed policy fails closed: `check` returns `deny` with
+`source: "fallback"`. This is a rulebook, not a sandbox. It runs in the hook, so
+an agent that can edit `~/.bashboy/policy.toml` can change its own user rules;
+use the system path with admin ACLs and `immutable = true` for company
+enforcement, and pair it with OS/container isolation when the boundary must be
+hard.
 
 ## Configuration
 
@@ -201,6 +267,10 @@ loosens because a file failed to parse.
 | `BASHBOY_FAIL_MODE` | `closed` (default) or `open`; anything else is an error |
 | `BASHBOY_DISABLE` | `1`/`true`/`yes` disables **all** checks (see below) |
 | `BASHBOY_DEBUG` | `1`/`true`/`yes` writes diagnostics to stderr only |
+| `BASHBOY_POLICY` | One explicit policy file; replaces org/user/project discovery |
+| `BASHBOY_POLICY_ORG` | Overrides the org policy path |
+| `BASHBOY_POLICY_USER` | Overrides the user policy path |
+| `BASHBOY_POLICY_PROJECT` | Overrides the project policy path |
 
 ## Claude Code setup
 
@@ -303,7 +373,8 @@ verdict is unexpected, it throws
 > **`BASHBOY_DISABLE=1` disables all checks.** Commands are allowed with
 > `source: "disabled"` and no denylist, allowlist, or model evaluation runs.
 > For emergencies and CI debugging only. Never set it in an agent's environment
-> or in a shell that an agent controls.
+> or in a shell that an agent controls. An org policy with
+> `disable_escape_hatch = true` ignores this variable.
 
 ```bash
 BASHBOY_DISABLE=1 bashboy check --command "rm -rf /"   # allow (disabled)
@@ -354,6 +425,12 @@ so the parser can be extended.
 - `--from SPEC` is trusted input: a user who runs `install --from <path>` is
   explicitly pointing BashBoy at that checkout.
 - v1 has no audit log; the host's own transcript remains the record.
+- Policy regexes are trusted input. Patterns are capped at 512 characters and
+  commands at 64 KiB, but a pathological regex can still slow the hook; project
+  rules are deny-only, so an untrusted repository can annoy, not loosen.
+- Policy files are not signed. Company enforcement depends on filesystem ACLs,
+  MDM deployment, and `immutable = true`; a user who is a local admin can change
+  the system policy.
 
 ## Development
 
@@ -366,10 +443,11 @@ Layout:
 
 ```
 src/bashboy/
-  cli.py            check / install / config / auth / selftest / version
+  cli.py            check / rules / policy / install / config / auth / selftest / version
   config.py         TOML defaults, env overrides, API key resolution
   credentials.py    credential file read/write/clear + permission checks
   rules.py          structural allowlist + hard denylist (pure)
+  policy.py         org/user/project TOML policy: load, validate, evaluate
   provider.py       Clocked client, tolerant envelope parser
   classify.py       verdict pipeline (fast paths -> model -> fail closed)
   hooks/claude.py   Claude Code PreToolUse adapter

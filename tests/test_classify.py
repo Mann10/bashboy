@@ -309,3 +309,135 @@ def test_debug_logs_key_source_but_not_the_token(
     assert "api key source: file" in captured.err
     assert "file-secret-token" not in captured.err
     assert "file-secret-token" not in captured.out
+
+
+# --- layered policy -------------------------------------------------------
+
+
+def policy_file(tmp_path, text: str):
+    path = tmp_path / "policy.toml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+DENY_PROD_POLICY = """\
+version = 1
+
+[[rule]]
+id = "no-prod-db"
+action = "deny"
+match = '(?i)\\bpsql\\b.*\\bprod'
+reason = "Production database access is prohibited"
+"""
+
+
+def test_custom_policy_deny_short_circuits(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BASHBOY_POLICY", str(policy_file(tmp_path, DENY_PROD_POLICY)))
+    result = classify_command(
+        "psql -h prod-db", cwd=str(tmp_path), cfg=cfg, provider=ExplodingProvider()
+    )
+    assert result.decision == "deny"
+    assert result.source == "policy"
+    assert "no-prod-db" in result.reason
+    assert "Production database access is prohibited" in result.reason
+
+
+def test_custom_policy_deny_beats_the_builtin_allowlist(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = """\
+version = 1
+
+[[rule]]
+id = "no-git-status"
+action = "deny"
+contains = "git status"
+reason = "status is blocked here"
+"""
+    monkeypatch.setenv("BASHBOY_POLICY", str(policy_file(tmp_path, text)))
+    result = classify_command("git status", cwd=str(tmp_path), cfg=cfg)
+    assert result.decision == "deny"
+    assert result.source == "policy"
+
+
+def test_custom_policy_allow_overrides_the_builtin_denylist(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = """\
+version = 1
+
+[[rule]]
+id = "allow-sandbox-rm"
+action = "allow"
+match = '^rm -rf /tmp/sandbox'
+reason = "sandbox cleanup is allowed"
+"""
+    monkeypatch.setenv("BASHBOY_POLICY", str(policy_file(tmp_path, text)))
+    result = classify_command(
+        "rm -rf /tmp/sandbox/x", cwd=str(tmp_path), cfg=cfg, provider=ExplodingProvider()
+    )
+    assert result.decision == "allow"
+    assert result.source == "policy"
+    assert "allow-sandbox-rm" in result.reason
+
+
+def test_policy_error_fails_closed(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(
+        "BASHBOY_POLICY", str(policy_file(tmp_path, "version = 1\n[[rule]\n"))
+    )
+    result = classify_command("git status", cwd=str(tmp_path), cfg=cfg)
+    assert result.decision == "deny"
+    assert result.source == "fallback"
+    assert "policy error" in result.reason
+
+
+def test_org_require_key_denies_unknown_commands_without_a_key(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org = tmp_path / "org-policy.toml"
+    org.write_text("version = 1\n\n[policy]\nrequire_key = true\n", encoding="utf-8")
+    monkeypatch.setenv("BASHBOY_POLICY_ORG", str(org))
+    result = classify_command("docker build .", cwd=str(tmp_path), cfg=cfg)
+    assert result.decision == "deny"
+    assert result.source == "fallback"
+    assert "required by policy" in result.reason
+
+
+def test_org_disable_escape_hatch_ignores_bashboy_disable(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org = tmp_path / "org-policy.toml"
+    org.write_text(
+        "version = 1\n\n[policy]\ndisable_escape_hatch = true\n\n"
+        "[[rule]]\nid = 'org-no-prod'\naction = 'deny'\ncontains = 'prod'\n"
+        "reason = 'no prod'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BASHBOY_POLICY_ORG", str(org))
+    monkeypatch.setenv("BASHBOY_DISABLE", "1")
+    result = classify_command("psql prod", cwd=str(tmp_path), cfg=cfg)
+    assert result.decision == "deny"
+    assert result.source == "policy"
+
+
+def test_org_immutable_ignores_a_user_allow(
+    cfg: Config, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    org = tmp_path / "org-policy.toml"
+    org.write_text("version = 1\n\n[policy]\nimmutable = true\n", encoding="utf-8")
+    user = tmp_path / "user-policy.toml"
+    user.write_text(
+        "version = 1\n\n[[rule]]\nid = 'user-allow-rm'\naction = 'allow'\n"
+        "match = '^rm -rf /'\nreason = 'user wants this'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BASHBOY_POLICY_ORG", str(org))
+    monkeypatch.setenv("BASHBOY_POLICY_USER", str(user))
+    result = classify_command("rm -rf /", cwd=str(tmp_path), cfg=cfg)
+    assert result.decision == "deny"
+    assert result.source == "denylist"
+

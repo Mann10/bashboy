@@ -10,8 +10,8 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 1 of 3 (Classifier core)
-Status: v0.3.1 shipped; 0.4.0 adds local-only mode and a browsable rule catalog
-Last activity: 2026-10-21 - Added local-only mode and `bashboy rules` (0.4.0)
+Status: 0.4.0 committed; 0.5.0 adds the layered org/user/project policy engine
+Last activity: 2026-10-21 - Added layered policy files and `bashboy policy` (0.5.0)
 
 Progress: [███████---] 75%
 
@@ -48,10 +48,22 @@ Progress: [███████---] 75%
 - Added basic Windows recursive deletes (`del /s`, `rd /s`), `find / -delete`,
   `wipefs`/`blkdiscard`, and environment-dump rules (`printenv`, bare `env`/`set`,
   `export -p`, `/proc/*/environ`, PowerShell `Env:`).
+- Layered policy: org (system path) -> user (`~/.bashboy/policy.toml`) -> project
+  (`.bashboy/policy.toml`) -> built-ins. First match wins; a malformed file fails
+  closed. Project policies are tighten-only (checked-in `allow` rules are ignored).
+- Org flags: `immutable` (ignore user/project allows), `disable_escape_hatch`
+  (ignore `BASHBOY_DISABLE`), `require_key` (no key means deny).
+- `allow` rules are the intentional-destructive escape: only a human policy edit
+  can grant one, and an immutable org policy ignores user/project allows.
+- No Rego/OPA in the default path. TOML + `match` regex / `contains` + `cwd`
+  covers company rules while staying stdlib-only and fast; an optional `opa eval`
+  backend can be added later without changing the rule model.
 
 ### Pending Todos
 
-- Publish `0.4.0` (local-only mode + `bashboy rules`) and confirm `uvx bashboy version`.
+- Publish `0.5.0` (layered policy engine) and confirm `uvx bashboy version`.
+- Optional: audit log (JSONL) for policy decisions.
+- Optional: OPA/`opa eval` backend behind the same rule model.
 - Optional: gate OpenCode's `read` tool the same way as Claude's `Read` (currently only shell tools are hooked there).
 
 ### Releases
@@ -64,6 +76,8 @@ Progress: [███████---] 75%
 - `0.3.0` added the dotenv guard and quoted destructive-target matching; `0.3.1`
   added Windows drive-root deletes. Neither is tagged.
 - `0.4.0` adds local-only mode and the `bashboy rules` catalog; tag pending.
+- `0.5.0` adds the layered org/user/project policy engine and `bashboy policy`
+  (`path`, `show`, `test`, `init`); tag pending.
 
 ### Blockers/Concerns
 
@@ -75,3 +89,4 @@ Progress: [███████---] 75%
 |---|-------------|------|--------|-----------|
 | 261021-hu8 | Build BashBoy: uv/uvx Python CLI classifying shell commands via Clocked with local fast paths + Claude Code and OpenCode integrations | 2026-10-21 | d50abc0 | [261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c](./quick/261021-hu8-build-bashboy-a-uv-uvx-python-cli-that-c/) |
 | 261021-iz1 | Add file-based Clocked credentials: `api_key_file`, `BASHBOY_API_KEY_FILE`, `bashboy auth set/status/clear` | 2026-10-21 | f15f007 | [261021-iz1-add-file-based-clocked-credentials-provi](./quick/261021-iz1-add-file-based-clocked-credentials-provi/) |
+| 261021-policy | Add layered org/user/project TOML policy engine with `bashboy policy path/show/test/init`, tighten-only project rules, and org lock-down flags | 2026-10-21 | — | — |

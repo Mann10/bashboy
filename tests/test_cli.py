@@ -526,3 +526,177 @@ def test_auth_output_never_contains_the_token(
     for captured in (set_output, status_output):
         assert SENTINEL not in captured.out
         assert SENTINEL not in captured.err
+
+
+# --- policy ---------------------------------------------------------------
+
+DENY_PROD_POLICY = """\
+version = 1
+
+[[rule]]
+id = "no-prod-db"
+action = "deny"
+match = '(?i)\\bpsql\\b.*\\bprod'
+reason = "Production database access is prohibited"
+"""
+
+
+def explicit_policy(tmp_path, text: str = DENY_PROD_POLICY) -> Path:
+    path = tmp_path / "policy.toml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_policy_path_reports_every_source(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BASHBOY_POLICY_ORG", str(tmp_path / "org.toml"))
+    monkeypatch.setenv("BASHBOY_POLICY_USER", str(tmp_path / "user.toml"))
+    monkeypatch.setenv("BASHBOY_POLICY_PROJECT", str(tmp_path / "project.toml"))
+    code = run(["policy", "path"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "org:" in out
+    assert "user:" in out
+    assert "project:" in out
+    assert "missing" in out
+
+
+def test_policy_show_json(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BASHBOY_POLICY", str(explicit_policy(tmp_path)))
+    code = run(["policy", "show", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["sources"][0]["source"] == "explicit"
+    assert payload["sources"][0]["exists"] is True
+    assert payload["flags"] == {
+        "immutable": False,
+        "disable_escape_hatch": False,
+        "require_key": False,
+    }
+    assert payload["rules"][0]["id"] == "no-prod-db"
+    assert payload["rules"][0]["action"] == "deny"
+    assert payload["rules"][0]["match"] == "(?i)\\bpsql\\b.*\\bprod"
+
+
+def test_policy_show_text(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BASHBOY_POLICY", str(explicit_policy(tmp_path)))
+    code = run(["policy", "show"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "sources:" in out
+    assert "flags:" in out
+    assert "no-prod-db" in out
+    assert "Production database access is prohibited" in out
+
+
+def test_policy_test_plain_and_json(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BASHBOY_POLICY", str(explicit_policy(tmp_path)))
+
+    assert run(["policy", "test", "psql prod"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("deny (policy no-prod-db from explicit): ")
+
+    assert run(["policy", "test", "psql prod", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "matched": True,
+        "decision": "deny",
+        "rule": "no-prod-db",
+        "source": "explicit",
+        "reason": "Production database access is prohibited",
+    }
+
+
+def test_policy_test_without_a_match(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BASHBOY_POLICY", str(explicit_policy(tmp_path)))
+    assert run(["policy", "test", "ls"]) == 0
+    assert capsys.readouterr().out == "no policy match\n"
+
+    assert run(["policy", "test", "ls", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "matched": False,
+        "decision": None,
+        "rule": None,
+        "source": None,
+        "reason": None,
+    }
+
+
+def test_policy_test_requires_a_command(capsys: pytest.CaptureFixture[str]) -> None:
+    code = run(["policy", "test"])
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.out == ""
+    assert "requires a command" in captured.err
+
+
+def test_policy_show_and_test_report_parse_errors(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BASHBOY_POLICY", str(explicit_policy(tmp_path, "version = 1\n[[rule]\n")))
+    assert run(["policy", "show"]) == 2
+    assert "bashboy:" in capsys.readouterr().err
+
+    assert run(["policy", "test", "ls"]) == 2
+    assert "bashboy:" in capsys.readouterr().err
+
+
+def test_policy_init_user(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "nested" / "policy.toml"
+    monkeypatch.setenv("BASHBOY_POLICY_USER", str(target))
+    assert run(["policy", "init", "--scope", "user"]) == 0
+    assert target.read_text(encoding="utf-8").startswith("version = 1")
+    assert "wrote" in capsys.readouterr().out
+
+
+def test_policy_init_project(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run(["policy", "init", "--scope", "project", "--cwd", str(tmp_path)]) == 0
+    target = tmp_path / ".bashboy" / "policy.toml"
+    assert target.exists()
+    assert "wrote" in capsys.readouterr().out
+
+
+def test_policy_init_org_includes_flags(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "org-policy.toml"
+    monkeypatch.setenv("BASHBOY_POLICY_ORG", str(target))
+    assert run(["policy", "init", "--scope", "org"]) == 0
+    text = target.read_text(encoding="utf-8")
+    assert "[policy]" in text
+    assert "immutable = true" in text
+    assert "disable_escape_hatch = true" in text
+    assert "require_key = true" in text
+    captured = capsys.readouterr()
+    assert "wrote" in captured.out
+    assert "MDM" in captured.err
+
+
+def test_policy_init_refuses_to_overwrite(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "policy.toml"
+    target.write_text("version = 1\n", encoding="utf-8")
+    monkeypatch.setenv("BASHBOY_POLICY_USER", str(target))
+
+    assert run(["policy", "init", "--scope", "user"]) == 1
+    assert "already exists" in capsys.readouterr().out
+    assert target.read_text(encoding="utf-8") == "version = 1\n"
+
+    assert run(["policy", "init", "--scope", "user", "--force"]) == 0
+    assert "wrote" in capsys.readouterr().out
+

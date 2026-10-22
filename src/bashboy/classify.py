@@ -2,15 +2,18 @@
 
 Precedence is fixed and auditable:
 
-1. ``BASHBOY_DISABLE`` -- allow, source ``disabled`` (documented escape hatch).
-2. Blank command -- deny, source ``fallback``.
-3. Denylist -- deny, source ``denylist``.
-4. Allowlist -- allow, source ``allowlist``.
-5. No API key -- allow, source ``local-only`` (the host's own permission flow
-   still runs). ``BASHBOY_REQUIRE_KEY=1`` turns this step into a deny.
-6. Model -- allow/deny, source ``model``; any failure becomes ``fallback``.
+1. Policy error -- deny, source ``fallback`` (a broken rulebook never weakens).
+2. ``BASHBOY_DISABLE`` -- allow, source ``disabled`` (unless an org policy sets
+   ``disable_escape_hatch``).
+3. Blank command -- deny, source ``fallback``.
+4. Custom policy (org -> user -> project) -- deny/allow, source ``policy``.
+5. Built-in denylist -- deny, source ``denylist``.
+6. Built-in allowlist -- allow, source ``allowlist``.
+7. No API key -- allow, source ``local-only`` (the host's own permission flow
+   still runs). ``BASHBOY_REQUIRE_KEY=1`` or an org ``require_key`` denies instead.
+8. Model -- allow/deny, source ``model``; any failure becomes ``fallback``.
 
-The provider is imported lazily inside branch 6 so the fast paths never pay for
+The provider is imported lazily inside branch 8 so the fast paths never pay for
 ``urllib`` or ``json`` at startup.
 """
 
@@ -23,6 +26,7 @@ from dataclasses import dataclass
 
 from .config import Config, load_config, resolve_api_key
 from .credentials import CredentialError
+from .policy import PolicyError, evaluate_policy, load_policy
 from .rules import check_allowlist, check_denylist
 
 _TRUTHY = frozenset({"1", "true", "yes"})
@@ -65,6 +69,7 @@ class Classification:
             "latency_ms": self.latency_ms,
         }
 
+
 def _elapsed_ms(started: float) -> int:
     return max(int((time.perf_counter() - started) * 1000), 0)
 
@@ -80,13 +85,37 @@ def classify_command(
     if cfg is None:
         cfg = load_config()
 
-    if _enabled("BASHBOY_DISABLE"):
+    try:
+        policy = load_policy(cwd)
+    except PolicyError as exc:
+        latency = _elapsed_ms(started)
+        log(f"policy error: {exc} (latency={latency}ms)")
+        return Classification(
+            "deny", "fallback", f"policy error: {exc}", None, latency
+        )
+
+    if _enabled("BASHBOY_DISABLE") and not policy.flags.disable_escape_hatch:
         latency = _elapsed_ms(started)
         log(f"BASHBOY_DISABLE is set: allowing without checks (latency={latency}ms)")
         return Classification("allow", "disabled", "BASHBOY_DISABLE is set", None, latency)
 
     if not isinstance(command, str) or not command.strip():
         return Classification("deny", "fallback", "no command provided", None, _elapsed_ms(started))
+
+    policy_hit = evaluate_policy(policy, command, cwd)
+    if policy_hit is not None:
+        latency = _elapsed_ms(started)
+        log(
+            f"policy hit: {policy_hit.rule_id} -> {policy_hit.decision} "
+            f"(latency={latency}ms)"
+        )
+        return Classification(
+            policy_hit.decision,
+            "policy",
+            f"policy {policy_hit.rule_id} ({policy_hit.source}): {policy_hit.reason}",
+            None,
+            latency,
+        )
 
     if cfg.policy.denylist:
         hit = check_denylist(command, cwd)
@@ -117,6 +146,15 @@ def classify_command(
         log(f"api key source: {key_source}")  # source label only -- never the token
     elif provider is None:
         latency = _elapsed_ms(started)
+        if policy.flags.require_key:
+            log(f"no API key and policy requires one: denying (latency={latency}ms)")
+            return Classification(
+                "deny",
+                "fallback",
+                "no API key configured (required by policy)",
+                None,
+                latency,
+            )
         if _enabled("BASHBOY_REQUIRE_KEY"):
             log(f"no API key and BASHBOY_REQUIRE_KEY is set: denying (latency={latency}ms)")
             return Classification(
