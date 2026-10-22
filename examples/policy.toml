@@ -1,0 +1,42 @@
+# BashBoy demo policy.
+#
+# Try it without touching your real policy:
+#
+#   $env:BASHBOY_POLICY = "C:\personal\BashBoy\examples\policy.toml"
+#   uv run bashboy policy show
+#   uv run bashboy policy test "psql -h prod-db"
+#   Remove-Item Env:BASHBOY_POLICY
+#
+# Rules are evaluated top to bottom. The first match wins.
+version = 1
+
+[[rule]]
+id = "no-prod-db"
+action = "deny"
+match = '(?i)\b(psql|mysql|mongosh)\b.*\bprod'
+reason = "Demo: production database access is prohibited"
+
+[[rule]]
+id = "no-kubectl-delete"
+action = "deny"
+contains = "kubectl delete"
+reason = "Demo: use the deployment pipeline instead of kubectl delete"
+
+[[rule]]
+id = "no-curl-pipe-shell"
+action = "deny"
+match = 'curl[^|]*\|\s*(?:ba)?sh'
+reason = "Demo: do not pipe a downloaded script into a shell"
+
+[[rule]]
+id = "no-force-push"
+action = "deny"
+contains = "git push --force"
+reason = "Demo: force pushes are prohibited"
+
+# This deliberately makes a narrow exception to the built-in rm denylist.
+[[rule]]
+id = "allow-demo-cleanup"
+action = "allow"
+match = '^rm -rf /tmp/bashboy-demo(?:/|$)'
+reason = "Demo: cleanup of the throwaway sandbox is allowed"

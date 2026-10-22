@@ -180,6 +180,9 @@ points at one explicit file and replaces discovery (CI/tests); the per-scope
 `BASHBOY_POLICY_ORG`, `BASHBOY_POLICY_USER`, and `BASHBOY_POLICY_PROJECT`
 override individual paths.
 
+A runnable example lives in [`examples/policy.toml`](examples/policy.toml);
+point `BASHBOY_POLICY` at it to try rules without touching your real policy:
+
 ```toml
 version = 1
 
