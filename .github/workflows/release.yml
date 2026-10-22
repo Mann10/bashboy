@@ -15,8 +15,8 @@ jobs:
       id-token: write # OIDC for PyPI trusted publishing
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
       - name: Build sdist and wheel
         run: uv build
       - name: Publish to PyPI
