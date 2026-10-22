@@ -359,7 +359,8 @@ The plugin hooks both API generations with one shared helper:
   `output.args.command`.
 
 It acts only for the `bash`/`shell` tools and runs
-`uvx bashboy check --json --command <cmd> --cwd <dir>` via
+`uvx bashboy check --json --command <cmd> --cwd <dir>` (or
+`uvx --from SPEC bashboy check ...` when installed with `--from`) via
 `execFile(..., { shell: false, timeout: 15000, windowsHide: true })`. The command is
 a single argv element; it is never passed through a shell and never concatenated
 into a command line. On `deny` it throws
@@ -367,6 +368,31 @@ into a command line. On `deny` it throws
 non-zero without parseable JSON, the JSON is invalid, the call times out, or the
 verdict is unexpected, it throws
 `Error("BashBoy could not verify this command: <detail>")` — fail closed.
+
+Options:
+
+```bash
+bashboy install --opencode --dry-run
+bashboy install --opencode --config-dir ./opencode
+bashboy install --opencode --config-dir ./opencode --from /path/to/BashBoy
+```
+
+For a local checkout or an unreleased build, use `--from` so the plugin runs that
+checkout instead of the published package:
+
+```bash
+bashboy install --opencode --config-dir /path/to/test/.opencode --from /path/to/BashBoy
+```
+
+The plugin then calls `uvx --from /path/to/BashBoy bashboy ...`; the spec is a
+single argv element, never a shell string. Put a test policy at
+`/path/to/test/.bashboy/policy.toml` and start OpenCode with `--standalone` so
+the private server inherits the current directory and environment:
+
+```bash
+cd /path/to/test
+opencode --standalone
+```
 
 `bashboy install --opencode --dry-run` prints one JSON object with
 `plugin_path`, `plugin_source`, and the would-be `config`, and writes nothing.

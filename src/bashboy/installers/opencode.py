@@ -54,7 +54,7 @@ async function classify(command: string, cwd: unknown): Promise<void> {
   try {
     const result = await run(
       "uvx",
-      ["bashboy", "check", "--json", "--command", command, "--cwd", dir],
+      UVX_ARGS_PLACEHOLDER,
       { shell: false, timeout: TIMEOUT_MS, windowsHide: true },
     )
     stdout = String((result as AnyRecord).stdout ?? "")
@@ -113,9 +113,23 @@ export default {
 }
 """
 
-PLUGIN_SOURCE = _PLUGIN_TEMPLATE.replace("VERSION_PLACEHOLDER", __version__).replace(
-    "TIMEOUT_MS_PLACEHOLDER", "15000"
-)
+
+def _plugin_source(*, timeout_ms: int = 15000, from_spec: str | None = None) -> str:
+    """Render the plugin. ``from_spec`` adds a single ``uvx --from`` argv element."""
+    args = '["bashboy", "check", "--json", "--command", command, "--cwd", dir]'
+    if from_spec:
+        args = (
+            f'["--from", {json.dumps(from_spec)}, "bashboy", "check", '
+            '"--json", "--command", command, "--cwd", dir]'
+        )
+    return (
+        _PLUGIN_TEMPLATE.replace("VERSION_PLACEHOLDER", __version__)
+        .replace("TIMEOUT_MS_PLACEHOLDER", str(timeout_ms))
+        .replace("UVX_ARGS_PLACEHOLDER", args)
+    )
+
+
+PLUGIN_SOURCE = _plugin_source()
 
 
 def default_config_dir() -> Path:
@@ -144,15 +158,20 @@ def _load_config(config_file: Path) -> dict:
     return data
 
 
-def install_opencode(config_dir: Path | str | None = None, *, dry_run: bool = False) -> dict:
+def install_opencode(
+    config_dir: Path | str | None = None,
+    *,
+    from_spec: str | None = None,
+    dry_run: bool = False,
+) -> dict:
     base = Path(config_dir) if config_dir else default_config_dir()
     plugin_path = base / "plugins" / "bashboy.ts"
     config_file = base / "opencode.json"
     plugin_target = str(plugin_path)
 
     cfg = load_config()
-    source = _PLUGIN_TEMPLATE.replace("VERSION_PLACEHOLDER", __version__).replace(
-        "TIMEOUT_MS_PLACEHOLDER", str(int(cfg.opencode.timeout_ms))
+    source = _plugin_source(
+        timeout_ms=int(cfg.opencode.timeout_ms), from_spec=from_spec
     )
 
     config = _load_config(config_file)

@@ -195,6 +195,28 @@ def test_opencode_dry_run_writes_nothing(tmp_path) -> None:
     assert "execute.before" in result["plugin_source"]
 
 
+def test_opencode_from_spec_appears_in_args(tmp_path) -> None:
+    result = install_opencode(tmp_path / "oc", from_spec="C:/local/BashBoy", dry_run=True)
+    source = result["plugin_source"]
+    assert '"--from", "C:/local/BashBoy", "bashboy", "check"' in source
+    assert '["bashboy", "check"' not in source
+
+
+def test_opencode_from_spec_is_json_escaped(tmp_path) -> None:
+    spec = 'C:\\odd"path'
+    result = install_opencode(tmp_path / "oc", from_spec=spec, dry_run=True)
+    assert f'"--from", {json.dumps(spec)}, "bashboy"' in result["plugin_source"]
+
+
+def test_opencode_rerun_replaces_from_spec(tmp_path) -> None:
+    base = tmp_path / "oc"
+    install_opencode(base, from_spec="/old")
+    install_opencode(base, from_spec="/new")
+    source = (base / "plugins" / "bashboy.ts").read_text(encoding="utf-8")
+    assert '"--from", "/new", "bashboy"' in source
+    assert '"/old"' not in source
+
+
 def test_opencode_invalid_json_raises(tmp_path) -> None:
     base = tmp_path / "opencode"
     base.mkdir()
@@ -219,7 +241,12 @@ def test_plugin_source_constant_is_complete() -> None:
     assert "tool.execute.before" in PLUGIN_SOURCE
     assert "BashBoy blocked this command: " in PLUGIN_SOURCE
     assert "TIMEOUT_MS_PLACEHOLDER" not in PLUGIN_SOURCE
+    assert "UVX_ARGS_PLACEHOLDER" not in PLUGIN_SOURCE
     assert PLUGIN_SOURCE.count('"uvx"') == 1
+    assert (
+        '["bashboy", "check", "--json", "--command", command, "--cwd", dir]'
+        in PLUGIN_SOURCE
+    )
 
 
 def test_plugin_source_uses_configured_timeout(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

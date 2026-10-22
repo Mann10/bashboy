@@ -11,7 +11,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 
 Phase: 1 of 3 (Classifier core)
 Status: 0.4.0 committed; 0.5.0 adds the layered org/user/project policy engine
-Last activity: 2026-10-22 - Added layered policy files and `bashboy policy` (0.5.0)
+Last activity: 2026-10-22 - Added layered policy files, `bashboy policy`, and OpenCode `--from` (0.5.0)
 
 Progress: [███████---] 75%
 
@@ -58,6 +58,9 @@ Progress: [███████---] 75%
 - No Rego/OPA in the default path. TOML + `match` regex / `contains` + `cwd`
   covers company rules while staying stdlib-only and fast; an optional `opa eval`
   backend can be added later without changing the rule model.
+- Both installers accept `--from SPEC`; the OpenCode plugin runs
+  `uvx --from SPEC bashboy ...` with the spec as one argv element. This tests an
+  unreleased checkout without publishing first.
 
 ### Pending Todos
 
@@ -76,8 +79,9 @@ Progress: [███████---] 75%
 - `0.3.0` added the dotenv guard and quoted destructive-target matching; `0.3.1`
   added Windows drive-root deletes. Neither is tagged.
 - `0.4.0` adds local-only mode and the `bashboy rules` catalog; tag pending.
-- `0.5.0` adds the layered org/user/project policy engine and `bashboy policy`
-  (`path`, `show`, `test`, `init`); tag pending.
+- `0.5.0` adds the layered org/user/project policy engine, `bashboy policy`
+  (`path`, `show`, `test`, `init`), and `--from` support for the OpenCode
+  installer; tag pending.
 
 ### Blockers/Concerns
 

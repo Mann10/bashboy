@@ -449,7 +449,9 @@ def _cmd_install(args: argparse.Namespace) -> int:
                 args.settings, from_spec=args.from_spec, dry_run=args.dry_run
             )
         if run_opencode:
-            results["opencode"] = install_opencode(args.config_dir, dry_run=args.dry_run)
+            results["opencode"] = install_opencode(
+                args.config_dir, from_spec=args.from_spec, dry_run=args.dry_run
+            )
     except (ConfigError, OSError, ValueError) as exc:
         print(f"bashboy: {exc}", file=sys.stderr)
         return 2
@@ -588,7 +590,12 @@ def _build_parser() -> argparse.ArgumentParser:
     install.add_argument("--opencode", action="store_true", help="install the OpenCode plugin")
     install.add_argument("--all", action="store_true", help="install both integrations")
     install.add_argument("--dry-run", action="store_true", help="print what would be written")
-    install.add_argument("--from", dest="from_spec", default=None, help="uvx --from SPEC")
+    install.add_argument(
+        "--from",
+        dest="from_spec",
+        default=None,
+        help="uvx --from SPEC for Claude and OpenCode",
+    )
     install.add_argument("--settings", default=None, help="Claude settings.json path")
     install.add_argument("--config-dir", default=None, help="OpenCode config directory")
     install.set_defaults(handler=_cmd_install)
