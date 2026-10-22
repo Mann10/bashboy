@@ -10,8 +10,8 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 1 of 3 (Classifier core)
-Status: 0.4.0 committed; 0.5.0 adds the layered org/user/project policy engine
-Last activity: 2026-10-22 - Added layered policy files, `bashboy policy`, and OpenCode `--from` (0.5.0)
+Status: 0.5.0 published; layered policy engine and OpenCode `--from` are live
+Last activity: 2026-10-22 - Published 0.5.0 to PyPI and confirmed `uvx --refresh bashboy version`
 
 Progress: [███████---] 75%
 
@@ -64,7 +64,6 @@ Progress: [███████---] 75%
 
 ### Pending Todos
 
-- Publish `0.5.0` (layered policy engine) and confirm `uvx bashboy version`.
 - Optional: audit log (JSONL) for policy decisions.
 - Optional: OPA/`opa eval` backend behind the same rule model.
 - Optional: gate OpenCode's `read` tool the same way as Claude's `Read` (currently only shell tools are hooked there).
@@ -77,11 +76,12 @@ Progress: [███████---] 75%
   it fails every provider call with HTTP 403 because of Cloudflare error 1010.
 - `0.2.1` fixes the User-Agent; published 2026-10-21, `uvx bashboy version` confirmed.
 - `0.3.0` added the dotenv guard and quoted destructive-target matching; `0.3.1`
-  added Windows drive-root deletes. Neither is tagged.
-- `0.4.0` adds local-only mode and the `bashboy rules` catalog; tag pending.
-- `0.5.0` adds the layered org/user/project policy engine, `bashboy policy`
-  (`path`, `show`, `test`, `init`), and `--from` support for the OpenCode
-  installer; tag pending.
+  added Windows drive-root deletes; `0.4.0` added local-only mode and the
+  `bashboy rules` catalog. All three ship in `0.5.0`.
+- `0.5.0` published to PyPI on 2026-10-22 via tag `v0.5.0`: layered
+  org/user/project policy engine, `bashboy policy` (`path`, `show`, `test`,
+  `init`), and `--from` support for the OpenCode installer.
+  `uvx --refresh bashboy version` confirmed `0.5.0`.
 
 ### Blockers/Concerns
 
